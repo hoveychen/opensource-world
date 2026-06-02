@@ -1,0 +1,16 @@
+# Build output
+/bin/
+*.exe
+
+# Agent scratch / worktree workflow
+/TASKS.md
+/.worktrees/
+
+# Local database & data artifacts
+/data/
+*.duckdb
+*.duckdb.wal
+*.tmp
+
+# OS / editor
+.DS_Store
