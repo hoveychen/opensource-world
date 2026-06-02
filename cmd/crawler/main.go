@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hoveychen/opensource-world/internal/aggregate"
 	"github.com/hoveychen/opensource-world/internal/db"
 	"github.com/hoveychen/opensource-world/internal/ecosystems"
 	"github.com/hoveychen/opensource-world/internal/ghtoken"
@@ -42,7 +43,8 @@ Commands:
   token-check   verify a GitHub token can be resolved
   stats         print a summary of the local database
   enumerate     enumerate repos via GitHub Search (P2)
-  enrich        enrich stored repos via ecosyste.ms (P3)
+  enrich        enrich stored repos via ecosyste.ms
+  aggregate     write JSON summaries for the visualization site
 
 Env:
   DB_PATH       override the DuckDB file path
@@ -73,6 +75,8 @@ func main() {
 		err = cmdEnumerate(os.Args[2:])
 	case "enrich":
 		err = cmdEnrich(os.Args[2:])
+	case "aggregate":
+		err = cmdAggregate(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -126,6 +130,24 @@ func cmdTokenCheck() error {
 		masked = masked[:4] + "…" + masked[len(masked)-4:]
 	}
 	fmt.Printf("GitHub token resolved: %s\n", masked)
+	return nil
+}
+
+func cmdAggregate(args []string) error {
+	fs := flag.NewFlagSet("aggregate", flag.ExitOnError)
+	out := fs.String("out", "web/public/data", "output directory for the JSON summaries")
+	fs.Parse(args)
+
+	database, err := db.Open(dbPath())
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+
+	if err := aggregate.Run(database, *out); err != nil {
+		return err
+	}
+	log.Printf("aggregated JSON written to %s", *out)
 	return nil
 }
 

@@ -1,0 +1,79 @@
+name: pages
+
+# Rebuild and deploy the visualization site to GitHub Pages. Runs after each
+# crawl finishes (so the site tracks the latest data), and on demand.
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["crawl"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Only the latest deploy matters.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Restore DB from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data
+          if gh release download db --pattern repos.duckdb.gz --dir data 2>/dev/null; then
+            gunzip -f data/repos.duckdb.gz
+            echo "restored DB from release"
+          else
+            echo "no DB asset yet; the site will render with empty data"
+          fi
+
+      - name: Aggregate JSON
+        run: |
+          CGO_ENABLED=1 go build -o bin/crawler ./cmd/crawler
+          ./bin/crawler aggregate -out web/public/data
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Build site
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
