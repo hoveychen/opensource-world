@@ -22,6 +22,23 @@
     "Liberation Mono", monospace;
 
   --maxw: 1012px;
+  color-scheme: dark;
+}
+
+/* GitHub Primer light theme */
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-subtle: #f6f8fa;
+  --bg-inset: #f6f8fa;
+  --border: #d1d9e0;
+  --border-muted: #d1d9e0b3;
+  --fg: #1f2328;
+  --fg-muted: #59636e;
+  --accent: #0969da;
+  --accent-subtle: #ddf4ff;
+  --success: #1a7f37;
+  --star: #bf8700;
+  color-scheme: light;
 }
 
 * {
@@ -42,6 +59,7 @@ body {
   line-height: 1.5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 a {
@@ -90,6 +108,35 @@ a:hover {
   border: 1px solid var(--border);
   border-radius: 2em;
   padding: 0.05rem 0.55rem;
+}
+.theme-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.theme-toggle:hover {
+  color: var(--fg);
+  background: var(--bg-subtle);
+  border-color: var(--fg-muted);
+}
+/* show the icon matching the *current* theme; hide the other */
+.theme-toggle .i-sun {
+  display: none;
+}
+:root[data-theme="light"] .theme-toggle .i-sun {
+  display: inline-flex;
+}
+:root[data-theme="light"] .theme-toggle .i-moon {
+  display: none;
 }
 
 #app {
