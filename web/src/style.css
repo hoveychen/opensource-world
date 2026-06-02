@@ -353,6 +353,142 @@ body::before {
   padding: 4rem 0;
 }
 
+/* ---------- ranking controls ---------- */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 1.4rem;
+}
+.controls input[type="search"],
+.controls select {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--paper);
+  background: rgba(20, 28, 46, 0.6);
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  padding: 0.55rem 0.8rem;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.controls input[type="search"] {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+}
+.controls input::placeholder {
+  color: var(--muted);
+}
+.controls input:focus,
+.controls select:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(232, 176, 75, 0.14);
+}
+.controls select {
+  cursor: pointer;
+}
+.controls .count {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-left: auto;
+}
+.empty {
+  font-family: var(--mono);
+  color: var(--muted);
+  padding: 2rem 0;
+  letter-spacing: 0.05em;
+}
+
+/* ---------- language distribution ---------- */
+.lang-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.lang-row {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr auto;
+  align-items: center;
+  gap: 1rem;
+}
+.lang-name {
+  font-size: 1.02rem;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lang-bar {
+  height: 10px;
+  background: rgba(236, 227, 208, 0.06);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.lang-fill {
+  display: block;
+  height: 100%;
+  width: var(--w, 0%);
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--gold), var(--gold-soft));
+  box-shadow: 0 0 12px rgba(232, 176, 75, 0.4);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.section.in .lang-fill {
+  animation: grow 1s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  animation-delay: calc(var(--i) * 45ms + 150ms);
+}
+@keyframes grow {
+  to {
+    transform: scaleX(1);
+  }
+}
+.lang-val {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--gold);
+  white-space: nowrap;
+}
+.lang-val em {
+  color: var(--muted);
+  font-style: normal;
+}
+
+/* ---------- trends: line draw-in ---------- */
+.draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+.section.in .draw {
+  animation: draw 1.6s cubic-bezier(0.4, 0, 0.2, 1) forwards 0.2s;
+}
+.section.in .draw-2 {
+  animation-delay: 0.6s;
+  animation-duration: 1.3s;
+}
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ---------- starfield twinkle ---------- */
+body::before {
+  animation: twinkle 7s ease-in-out infinite alternate;
+}
+@keyframes twinkle {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 0.85;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .section,
   .section.in {
@@ -360,7 +496,20 @@ body::before {
     opacity: 1;
     transform: none;
   }
-  .rank-row::before {
+  .rank-row::before,
+  .section.in .lang-fill,
+  .section.in .draw {
     transition: none;
+    animation: none;
+  }
+  .lang-fill {
+    transform: scaleX(1);
+  }
+  .draw {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+  body::before {
+    animation: none;
   }
 }
