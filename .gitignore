@@ -12,5 +12,10 @@
 *.duckdb.wal
 *.tmp
 
+# Web app (Vite) — deps, build output, and generated data
+/web/node_modules/
+/web/dist/
+/web/public/data/
+
 # OS / editor
 .DS_Store
