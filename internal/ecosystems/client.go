@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -16,19 +17,40 @@ import (
 
 const (
 	apiBase = "https://repos.ecosyste.ms/api/v1"
-	// ecosyste.ms allows ~5000 req/hour anonymously; ~0.8s spacing stays under it.
-	minInterval = 800 * time.Millisecond
+	// Anonymous tier is ~5000 req/hour; ~0.8s spacing stays under it.
+	anonInterval = 800 * time.Millisecond
+	// Polite tier (joined by passing a mailto) is ~15000 req/hour; ~0.26s
+	// spacing (~13.8k/hr) stays comfortably under it.
+	politeInterval = 260 * time.Millisecond
 )
 
 // Client talks to the ecosyste.ms Repos API, one request at a time.
+//
+// Passing a non-empty mailto joins the "polite pool": ecosyste.ms raises the
+// rate limit from ~5000 to ~15000 req/hour. Verified mechanism (2026-06): only
+// the `mailto=` query parameter engages it — putting mailto in the User-Agent
+// did NOT (the response stayed tier=anonymous, limit=5000).
 type Client struct {
 	http     *http.Client
+	mailto   string
+	interval time.Duration
 	lastCall time.Time
+
+	loggedTier bool // log the served rate-limit tier once, for confirmation
 }
 
-// NewClient builds an ecosyste.ms client.
-func NewClient() *Client {
-	return &Client{http: &http.Client{Timeout: 30 * time.Second}}
+// NewClient builds an ecosyste.ms client. If mailto is non-empty it is sent as
+// the `mailto=` query parameter to join the polite pool.
+func NewClient(mailto string) *Client {
+	interval := anonInterval
+	if mailto != "" {
+		interval = politeInterval
+	}
+	return &Client{
+		http:     &http.Client{Timeout: 30 * time.Second},
+		mailto:   mailto,
+		interval: interval,
+	}
 }
 
 // Repository is the subset of the ecosyste.ms repository object we store.
@@ -48,6 +70,9 @@ func (e *NotFound) Error() string { return "ecosyste.ms: not found: " + e.FullNa
 func (c *Client) GetRepository(ctx context.Context, fullName string) (*Repository, error) {
 	// Path segment must be URL-escaped: "owner/name" -> "owner%2Fname".
 	endpoint := fmt.Sprintf("%s/hosts/GitHub/repositories/%s", apiBase, url.PathEscape(fullName))
+	if c.mailto != "" {
+		endpoint += "?mailto=" + url.QueryEscape(c.mailto)
+	}
 
 	var lastErr error
 	for attempt := 0; attempt < 5; attempt++ {
@@ -72,7 +97,7 @@ func (c *Client) GetRepository(ctx context.Context, fullName string) (*Repositor
 
 func (c *Client) throttle() {
 	if !c.lastCall.IsZero() {
-		if wait := minInterval - time.Since(c.lastCall); wait > 0 {
+		if wait := c.interval - time.Since(c.lastCall); wait > 0 {
 			time.Sleep(wait)
 		}
 	}
@@ -96,6 +121,11 @@ func (c *Client) do(ctx context.Context, endpoint, fullName string) (*Repository
 
 	switch {
 	case resp.StatusCode == http.StatusOK:
+		if !c.loggedTier {
+			c.loggedTier = true
+			log.Printf("ecosyste.ms rate-limit tier=%s limit=%s/hr",
+				resp.Header.Get("X-RateLimit-Tier"), resp.Header.Get("X-RateLimit-Limit"))
+		}
 		var r Repository
 		if err := json.Unmarshal(body, &r); err != nil {
 			return nil, -1, fmt.Errorf("decode %q: %w", fullName, err)

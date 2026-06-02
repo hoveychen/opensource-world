@@ -42,6 +42,12 @@ sort.
 A GitHub token is required for the Search API. The crawler resolves it from, in order:
 `GITHUB_TOKEN` → `GH_TOKEN` → `gh auth token`.
 
+`enrich` joins the ecosyste.ms **polite pool** by sending a contact email as the
+`mailto=` query parameter, which raises the rate limit from ~5000 to ~15000 req/hr
+(≈3× faster). Set the email with `-mailto` or `ECOSYSTEMS_MAILTO`; pass `-mailto ""`
+to stay anonymous. Note: only the `mailto=` query parameter engages the polite pool
+— putting the email in the User-Agent does **not** (verified 2026-06).
+
 ## Usage
 
 ```bash
