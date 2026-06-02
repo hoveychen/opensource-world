@@ -1,0 +1,101 @@
+name: crawl
+
+# Long-running, resumable crawl driven by GitHub Actions.
+# Each run restores the DuckDB from a GitHub Release asset, crawls for a bounded
+# time (under the per-job cap), then saves the DB back. A cron chains runs so the
+# multi-day enumerate/enrich campaign makes progress without a local machine.
+
+on:
+  workflow_dispatch:
+    inputs:
+      min_stars:
+        description: "Lower star bound for enumerate"
+        default: "10"
+      enumerate_minutes:
+        description: "Minutes to spend enumerating (0 to skip)"
+        default: "180"
+      enrich_minutes:
+        description: "Minutes to spend enriching via ecosyste.ms (0 to skip)"
+        default: "120"
+      mailto:
+        description: "Contact email for the ecosyste.ms polite pool"
+        default: "yuheng_chen@outlook.com"
+  schedule:
+    # Every 6 hours. Each run resumes from the saved DB.
+    - cron: "0 */6 * * *"
+
+# Need write access to publish the DB as a release asset.
+permissions:
+  contents: write
+
+# Never run two crawls at once — they would race on the release asset.
+concurrency:
+  group: crawl
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350 # under the 360-minute hard cap
+    env:
+      RELEASE_TAG: db
+      ASSET: repos.duckdb.gz
+      DB_PATH: data/repos.duckdb
+      # Inputs are empty on a scheduled run; fall back to sensible defaults.
+      MIN_STARS: ${{ github.event.inputs.min_stars || '10' }}
+      ENUMERATE_MINUTES: ${{ github.event.inputs.enumerate_minutes || '180' }}
+      ENRICH_MINUTES: ${{ github.event.inputs.enrich_minutes || '120' }}
+      MAILTO: ${{ github.event.inputs.mailto || 'yuheng_chen@outlook.com' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+
+      - name: Restore DB from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data
+          if gh release download "$RELEASE_TAG" --pattern "$ASSET" --dir data 2>/dev/null; then
+            gunzip -f "data/$ASSET"
+            echo "restored existing DB"
+          else
+            echo "no existing DB asset; starting fresh"
+          fi
+
+      - name: Build
+        run: CGO_ENABLED=1 go build -o bin/crawler ./cmd/crawler
+
+      - name: Enumerate
+        if: ${{ env.ENUMERATE_MINUTES != '0' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./bin/crawler enumerate -min-stars "$MIN_STARS" -max-runtime "${ENUMERATE_MINUTES}m"
+
+      - name: Enrich
+        if: ${{ env.ENRICH_MINUTES != '0' }}
+        env:
+          ECOSYSTEMS_MAILTO: ${{ env.MAILTO }}
+        run: ./bin/crawler enrich -max-runtime "${ENRICH_MINUTES}m"
+
+      - name: Stats
+        if: always()
+        run: ./bin/crawler stats || true
+
+      - name: Save DB to release
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f "$DB_PATH" ]; then
+            echo "no DB file to save; skipping"
+            exit 0
+          fi
+          gzip -f "$DB_PATH"
+          gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_TAG" --title "crawler database" \
+              --notes "DuckDB snapshot of GitHub non-fork repos (stars>=10). Updated by the crawl workflow."
+          gh release upload "$RELEASE_TAG" "$DB_PATH.gz" --clobber
+          echo "uploaded $DB_PATH.gz to release $RELEASE_TAG"
