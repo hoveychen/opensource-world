@@ -93,3 +93,36 @@ Query the DuckDB file directly for visualization, e.g.:
 SELECT language, count(*) AS repos, sum(stars) AS stars
 FROM repos GROUP BY language ORDER BY stars DESC LIMIT 20;
 ```
+
+## Running on GitHub Actions
+
+`.github/workflows/crawl.yml` runs the whole crawl in CI so you don't have to keep
+a local machine online. Each run:
+
+1. restores the DuckDB from the `db` GitHub Release (asset `repos.duckdb.gz`),
+2. builds the crawler,
+3. runs `enumerate` then `enrich`, each bounded by `-max-runtime`,
+4. gzips and re-uploads the DB to the release (`gh release upload --clobber`).
+
+A `cron` (every 6h) chains runs; resumability means each picks up where the last
+stopped. The `db` release is created automatically on the first run. Trigger
+manually from the Actions tab ("Run workflow") to tune the inputs:
+
+| Input | Default | Meaning |
+|---|---|---|
+| `min_stars` | `10` | lower star bound for enumerate |
+| `enumerate_minutes` | `180` | time budget for enumerate (`0` to skip) |
+| `enrich_minutes` | `120` | time budget for enrich (`0` to skip) |
+| `mailto` | contact email | ecosyste.ms polite-pool address |
+
+Notes:
+- **Use a public repo.** Actions standard runners are free with no monthly cap on
+  public repos; private repos are limited to 2000 min/month — far too little for the
+  multi-day full crawl.
+- The full DB approaches the 2 GB per-asset release limit; `repos.duckdb.gz` keeps
+  headroom. If it ever exceeds 2 GB, switch the workflow to external object storage.
+- Once enumeration is complete, set `enumerate_minutes=0` on the scheduled run to
+  avoid re-counting the internal window tree each time, leaving the full budget for
+  enrich.
+- Per-job time is capped at 6h; `-max-runtime` makes each phase exit cleanly before
+  then with progress saved.
