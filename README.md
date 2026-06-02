@@ -104,9 +104,14 @@ a local machine online. Each run:
 3. runs `enumerate` then `enrich`, each bounded by `-max-runtime`,
 4. gzips and re-uploads the DB to the release (`gh release upload --clobber`).
 
-A `cron` (every 6h) chains runs; resumability means each picks up where the last
-stopped. The `db` release is created automatically on the first run. Trigger
-manually from the Actions tab ("Run workflow") to tune the inputs:
+An hourly `cron` chains runs; resumability means each picks up where the last
+stopped. Rate-limit quotas reset hourly, so we trigger hourly — but the
+`concurrency` guard keeps runs from overlapping: an hourly trigger that fires
+while a long job is still running just queues and starts the moment that job
+ends. The net effect is near-continuous ~5.5h runs (the DB is transferred once
+per run, not once per hour) that still consume each hour's quota. The `db`
+release is created automatically on the first run. Trigger manually from the
+Actions tab ("Run workflow") to tune the inputs:
 
 | Input | Default | Meaning |
 |---|---|---|

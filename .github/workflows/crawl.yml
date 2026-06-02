@@ -21,8 +21,13 @@ on:
         description: "Contact email for the ecosyste.ms polite pool"
         default: "yuheng_chen@outlook.com"
   schedule:
-    # Every 6 hours. Each run resumes from the saved DB.
-    - cron: "0 */6 * * *"
+    # Hourly. Rate-limit quotas (ecosyste.ms polite ~15k/hr, GitHub Search) reset
+    # every hour, so we want a crawl running every hour. The concurrency guard
+    # below means an hourly trigger that lands while a long job is still running
+    # just queues — when the running job ends, the queued one starts immediately,
+    # giving near-continuous long runs (DB transferred once per long run, not
+    # once per hour) while still using each hour's quota.
+    - cron: "0 * * * *"
 
 # Need write access to publish the DB as a release asset.
 permissions:
