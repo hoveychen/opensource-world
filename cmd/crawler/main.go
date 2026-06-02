@@ -148,12 +148,24 @@ func cmdStats() error {
 	return nil
 }
 
+// withMaxRuntime derives a context that cancels after d (if d > 0). When it
+// fires, the running command sees ctx.Err() and exits cleanly with progress
+// saved — used to stay under CI per-job time limits.
+func withMaxRuntime(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	if d <= 0 {
+		return context.WithCancel(ctx)
+	}
+	log.Printf("max-runtime %s; will stop cleanly before then", d)
+	return context.WithTimeout(ctx, d)
+}
+
 func cmdEnumerate(args []string) error {
 	fs := flag.NewFlagSet("enumerate", flag.ExitOnError)
 	minStars := fs.Int("min-stars", 10, "lower star bound (inclusive)")
 	maxStars := fs.Int("max-stars", 0, "upper star bound (0 = auto-probe current max)")
 	from := fs.String("from", "", "earliest created date YYYY-MM-DD (default 2007-01-01)")
 	to := fs.String("to", "", "latest created date YYYY-MM-DD (default today)")
+	maxRuntime := fs.Duration("max-runtime", 0, "stop cleanly after this duration, saving progress (0 = no limit); e.g. 5h")
 	fs.Parse(args)
 
 	opts := github.EnumerateOptions{MinStars: *minStars, MaxStars: *maxStars}
@@ -184,6 +196,8 @@ func cmdEnumerate(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx, cancel := withMaxRuntime(ctx, *maxRuntime)
+	defer cancel()
 
 	client := github.NewClient(tok)
 	log.Printf("enumerating stars>=%d (non-fork) into %s", *minStars, dbPath())
@@ -203,6 +217,7 @@ func cmdEnrich(args []string) error {
 	fs := flag.NewFlagSet("enrich", flag.ExitOnError)
 	limit := fs.Int("limit", 0, "max repos to enrich this run (0 = all pending)")
 	mailto := fs.String("mailto", defaultMailto, "contact email for the ecosyste.ms polite pool (~15k/hr); empty = anonymous ~5k/hr")
+	maxRuntime := fs.Duration("max-runtime", 0, "stop cleanly after this duration, saving progress (0 = no limit); e.g. 5h")
 	fs.Parse(args)
 	if env := os.Getenv("ECOSYSTEMS_MAILTO"); env != "" {
 		*mailto = env
@@ -216,6 +231,8 @@ func cmdEnrich(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	ctx, cancel := withMaxRuntime(ctx, *maxRuntime)
+	defer cancel()
 
 	client := ecosystems.NewClient(*mailto)
 	pending, err := database.CountPendingEnrichment()
