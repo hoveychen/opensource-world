@@ -28,6 +28,11 @@ import (
 
 const defaultDBPath = "data/repos.duckdb"
 
+// defaultMailto joins the ecosyste.ms polite pool (~15k/hr vs ~5k/hr anonymous).
+// Override per-run with -mailto or the ECOSYSTEMS_MAILTO env var; set empty to
+// stay anonymous.
+const defaultMailto = "yuheng_chen@outlook.com"
+
 func usage() {
 	fmt.Fprint(os.Stderr, `crawler — local GitHub repo database builder
 
@@ -197,7 +202,11 @@ func cmdEnumerate(args []string) error {
 func cmdEnrich(args []string) error {
 	fs := flag.NewFlagSet("enrich", flag.ExitOnError)
 	limit := fs.Int("limit", 0, "max repos to enrich this run (0 = all pending)")
+	mailto := fs.String("mailto", defaultMailto, "contact email for the ecosyste.ms polite pool (~15k/hr); empty = anonymous ~5k/hr")
 	fs.Parse(args)
+	if env := os.Getenv("ECOSYSTEMS_MAILTO"); env != "" {
+		*mailto = env
+	}
 
 	database, err := db.Open(dbPath())
 	if err != nil {
@@ -208,7 +217,7 @@ func cmdEnrich(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	client := ecosystems.NewClient()
+	client := ecosystems.NewClient(*mailto)
 	pending, err := database.CountPendingEnrichment()
 	if err != nil {
 		return err
