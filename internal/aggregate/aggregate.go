@@ -21,7 +21,7 @@ func Run(database *db.DB, outDir string) error {
 	if err := writeMeta(database, outDir); err != nil {
 		return fmt.Errorf("meta: %w", err)
 	}
-	if err := writeTopRepos(database, outDir, 100); err != nil {
+	if err := writeTopRepos(database, outDir, 1000); err != nil {
 		return fmt.Errorf("top_repos: %w", err)
 	}
 	if err := writeTrends(database, outDir); err != nil {
@@ -29,6 +29,9 @@ func Run(database *db.DB, outDir string) error {
 	}
 	if err := writeTopics(database, outDir, 100); err != nil {
 		return fmt.Errorf("topics: %w", err)
+	}
+	if err := writeLanguages(database, outDir, 40); err != nil {
+		return fmt.Errorf("languages: %w", err)
 	}
 	return nil
 }
@@ -55,19 +58,22 @@ func writeMeta(d *db.DB, outDir string) error {
 	})
 }
 
-// TopRepo is one row of the star ranking.
+// TopRepo is one row of the star ranking. Topics are included so the frontend
+// can filter/search the ranking client-side without another request.
 type TopRepo struct {
-	FullName    string `json:"full_name"`
-	Stars       int    `json:"stars"`
-	Forks       int    `json:"forks"`
-	Language    string `json:"language"`
-	Description string `json:"description"`
-	HTMLURL     string `json:"html_url"`
+	FullName    string   `json:"full_name"`
+	Stars       int      `json:"stars"`
+	Forks       int      `json:"forks"`
+	Language    string   `json:"language"`
+	Description string   `json:"description"`
+	HTMLURL     string   `json:"html_url"`
+	Topics      []string `json:"topics"`
 }
 
 func writeTopRepos(d *db.DB, outDir string, limit int) error {
 	rows, err := d.Query(`SELECT full_name, stars, forks,
-		coalesce(language,''), coalesce(description,''), coalesce(html_url,'')
+		coalesce(language,''), coalesce(description,''), coalesce(html_url,''),
+		coalesce(topics,'[]')
 		FROM repos ORDER BY stars DESC LIMIT ?`, limit)
 	if err != nil {
 		return err
@@ -76,8 +82,12 @@ func writeTopRepos(d *db.DB, outDir string, limit int) error {
 	var out []TopRepo
 	for rows.Next() {
 		var r TopRepo
-		if err := rows.Scan(&r.FullName, &r.Stars, &r.Forks, &r.Language, &r.Description, &r.HTMLURL); err != nil {
+		var rawTopics string
+		if err := rows.Scan(&r.FullName, &r.Stars, &r.Forks, &r.Language, &r.Description, &r.HTMLURL, &rawTopics); err != nil {
 			return err
+		}
+		if json.Unmarshal([]byte(rawTopics), &r.Topics) != nil || r.Topics == nil {
+			r.Topics = []string{}
 		}
 		out = append(out, r)
 	}
@@ -85,6 +95,35 @@ func writeTopRepos(d *db.DB, outDir string, limit int) error {
 		return err
 	}
 	return writeJSON(outDir, "top_repos.json", out)
+}
+
+// LanguageCount is repos/stars for a programming language.
+type LanguageCount struct {
+	Language string `json:"language"`
+	Repos    int64  `json:"repos"`
+	Stars    int64  `json:"stars"`
+}
+
+func writeLanguages(d *db.DB, outDir string, limit int) error {
+	rows, err := d.Query(`SELECT language, count(*), coalesce(sum(stars),0)
+		FROM repos WHERE language IS NOT NULL AND language <> ''
+		GROUP BY language ORDER BY count(*) DESC LIMIT ?`, limit)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var out []LanguageCount
+	for rows.Next() {
+		var l LanguageCount
+		if err := rows.Scan(&l.Language, &l.Repos, &l.Stars); err != nil {
+			return err
+		}
+		out = append(out, l)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return writeJSON(outDir, "languages.json", out)
 }
 
 // YearBucket is repos/stars created in a given year.
