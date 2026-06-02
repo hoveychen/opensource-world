@@ -10,11 +10,20 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"flag"
 	"fmt"
+	"log"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/hoveychen/opensource-world/internal/db"
+	"github.com/hoveychen/opensource-world/internal/ecosystems"
 	"github.com/hoveychen/opensource-world/internal/ghtoken"
+	"github.com/hoveychen/opensource-world/internal/github"
 )
 
 const defaultDBPath = "data/repos.duckdb"
@@ -128,16 +137,142 @@ func cmdStats() error {
 	}
 	fmt.Printf("repos:           %d\n", s.TotalRepos)
 	fmt.Printf("enriched:        %d\n", s.Enriched)
+	fmt.Printf("forks (want 0):  %d\n", s.Forks)
 	fmt.Printf("windows done:    %d\n", s.WindowsDone)
 	fmt.Printf("stars range:     %d .. %d\n", s.MinStars.Int64, s.MaxStars.Int64)
 	return nil
 }
 
-// cmdEnumerate and cmdEnrich are wired up in P2 and P3.
 func cmdEnumerate(args []string) error {
-	return fmt.Errorf("enumerate: not yet implemented (P2)")
+	fs := flag.NewFlagSet("enumerate", flag.ExitOnError)
+	minStars := fs.Int("min-stars", 10, "lower star bound (inclusive)")
+	maxStars := fs.Int("max-stars", 0, "upper star bound (0 = auto-probe current max)")
+	from := fs.String("from", "", "earliest created date YYYY-MM-DD (default 2007-01-01)")
+	to := fs.String("to", "", "latest created date YYYY-MM-DD (default today)")
+	fs.Parse(args)
+
+	opts := github.EnumerateOptions{MinStars: *minStars, MaxStars: *maxStars}
+	var err error
+	if *from != "" {
+		if opts.From, err = time.Parse("2006-01-02", *from); err != nil {
+			return fmt.Errorf("bad -from: %w", err)
+		}
+	}
+	if *to != "" {
+		if opts.To, err = time.Parse("2006-01-02", *to); err != nil {
+			return fmt.Errorf("bad -to: %w", err)
+		}
+	}
+
+	tok, err := ghtoken.Resolve()
+	if err != nil {
+		return err
+	}
+	if err := ensureDataDir(dbPath()); err != nil {
+		return err
+	}
+	database, err := db.Open(dbPath())
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	client := github.NewClient(tok)
+	log.Printf("enumerating stars>=%d (non-fork) into %s", *minStars, dbPath())
+	if err := client.Enumerate(ctx, database, opts); err != nil {
+		if ctx.Err() != nil {
+			log.Printf("interrupted; progress saved (resume by re-running)")
+			return nil
+		}
+		return err
+	}
+	s, _ := database.Stats()
+	log.Printf("done. repos=%d windows=%d", s.TotalRepos, s.WindowsDone)
+	return nil
 }
 
 func cmdEnrich(args []string) error {
-	return fmt.Errorf("enrich: not yet implemented (P3)")
+	fs := flag.NewFlagSet("enrich", flag.ExitOnError)
+	limit := fs.Int("limit", 0, "max repos to enrich this run (0 = all pending)")
+	fs.Parse(args)
+
+	database, err := db.Open(dbPath())
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	client := ecosystems.NewClient()
+	pending, err := database.CountPendingEnrichment()
+	if err != nil {
+		return err
+	}
+	target := pending
+	if *limit > 0 && int64(*limit) < target {
+		target = int64(*limit)
+	}
+	log.Printf("enriching %d repos via ecosyste.ms (%d pending total)", target, pending)
+
+	const batchSize = 500
+	done := 0
+	for ctx.Err() == nil {
+		remaining := batchSize
+		if *limit > 0 {
+			if done >= *limit {
+				break
+			}
+			if r := *limit - done; r < remaining {
+				remaining = r
+			}
+		}
+		names, err := database.PendingEnrichment(remaining)
+		if err != nil {
+			return err
+		}
+		if len(names) == 0 {
+			break
+		}
+		for _, name := range names {
+			if ctx.Err() != nil {
+				break
+			}
+			repo, err := client.GetRepository(ctx, name)
+			switch {
+			case err == nil:
+				if e := database.SetEnrichment(name, repo.Language, repo.License, repo.Topics); e != nil {
+					return e
+				}
+			case isNotFound(err):
+				// Not on ecosyste.ms: mark processed so we don't retry forever.
+				if e := database.SetEnrichment(name, "", "", nil); e != nil {
+					return e
+				}
+			case ctx.Err() != nil:
+				// interrupted mid-request
+			default:
+				return fmt.Errorf("enrich %s: %w", name, err)
+			}
+			done++
+			if done%200 == 0 {
+				log.Printf("enriched %d/%d", done, target)
+			}
+		}
+	}
+	if ctx.Err() != nil {
+		log.Printf("interrupted after %d; progress saved (resume by re-running)", done)
+		return nil
+	}
+	log.Printf("done. enriched %d repos this run", done)
+	return nil
+}
+
+func isNotFound(err error) bool {
+	var nf *ecosystems.NotFound
+	return errors.As(err, &nf)
 }

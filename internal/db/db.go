@@ -35,11 +35,12 @@ func Open(path string) (*DB, error) {
 
 // Stats summarizes the contents of the database.
 type Stats struct {
-	TotalRepos    int64
-	Enriched      int64
-	WindowsDone   int64
-	MaxStars      sql.NullInt64
-	MinStars      sql.NullInt64
+	TotalRepos  int64
+	Enriched    int64
+	Forks       int64 // rows flagged is_fork — should always be 0 (we crawl fork:false)
+	WindowsDone int64
+	MaxStars    sql.NullInt64
+	MinStars    sql.NullInt64
 }
 
 // Stats returns a summary of stored repositories.
@@ -48,10 +49,11 @@ func (d *DB) Stats() (Stats, error) {
 	row := d.QueryRow(`SELECT
 		count(*),
 		count(eco_synced_at),
+		coalesce(sum(CASE WHEN is_fork THEN 1 ELSE 0 END), 0),
 		coalesce(max(stars), 0),
 		coalesce(min(stars), 0)
 		FROM repos`)
-	if err := row.Scan(&s.TotalRepos, &s.Enriched, &s.MaxStars, &s.MinStars); err != nil {
+	if err := row.Scan(&s.TotalRepos, &s.Enriched, &s.Forks, &s.MaxStars, &s.MinStars); err != nil {
 		return s, fmt.Errorf("scan repo stats: %w", err)
 	}
 	if err := d.QueryRow(`SELECT count(*) FROM crawl_windows WHERE done_at IS NOT NULL`).Scan(&s.WindowsDone); err != nil {
