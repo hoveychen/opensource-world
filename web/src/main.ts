@@ -14,9 +14,11 @@ type TopRepo = {
   language: string;
   description: string;
   html_url: string;
+  topics: string[];
 };
 type YearBucket = { year: number; repos: number; stars: number };
 type TopicCount = { topic: string; repos: number; stars: number };
+type LanguageCount = { language: string; repos: number; stars: number };
 
 const BASE = import.meta.env.BASE_URL;
 const dataURL = (name: string) => `${BASE}data/${name}`;
@@ -77,10 +79,17 @@ function hero(meta: Meta): string {
   </header>`;
 }
 
-function rankings(repos: TopRepo[]): string {
-  const top = repos.slice(0, 30);
-  const max = top.length ? top[0].stars : 1;
-  const rows = top
+// ---------- interactive star ranking ----------
+const SHOW = 40;
+let ALL_REPOS: TopRepo[] = [];
+
+function rankRowsHTML(repos: TopRepo[]): string {
+  if (!repos.length) {
+    return `<div class="empty">No repositories match that filter.</div>`;
+  }
+  const max = repos[0].stars || 1;
+  return repos
+    .slice(0, SHOW)
     .map((r, i) => {
       const w = ((r.stars / max) * 100).toFixed(1);
       const lang = r.language ? `<span class="lang">${esc(r.language)}</span>` : "";
@@ -99,18 +108,92 @@ function rankings(repos: TopRepo[]): string {
       </a>`;
     })
     .join("");
+}
+
+function applyFilter(query: string, lang: string): TopRepo[] {
+  const q = query.trim().toLowerCase();
+  return ALL_REPOS.filter((r) => {
+    if (lang && r.language !== lang) return false;
+    if (!q) return true;
+    return (
+      r.full_name.toLowerCase().includes(q) ||
+      r.description.toLowerCase().includes(q) ||
+      r.topics.some((t) => t.includes(q))
+    );
+  });
+}
+
+function rankings(repos: TopRepo[], langs: LanguageCount[]): string {
+  ALL_REPOS = repos;
+  const options = langs
+    .map((l) => `<option value="${esc(l.language)}">${esc(l.language)} · ${compact(l.repos)}</option>`)
+    .join("");
   return `
   <section class="section">
     <div class="section-head">
       <div class="eyebrow">I · Brightest bodies</div>
       <h2>The star ranking</h2>
-      <p>The most-starred repositories in the survey, ranked. Each glow beneath a
-        row is drawn to scale against the brightest.</p>
+      <p>The most-starred repositories in the survey. Search by name, description
+        or topic, or filter to a single language — the top ${SHOW} matches are drawn,
+        each row's glow to scale against the brightest.</p>
     </div>
-    <div class="rank">${rows}</div>
+    <div class="controls">
+      <input id="rank-search" type="search" placeholder="search name, description, topic…" autocomplete="off" />
+      <select id="rank-lang">
+        <option value="">All languages</option>
+        ${options}
+      </select>
+      <span id="rank-count" class="count"></span>
+    </div>
+    <div class="rank" id="rank-list">${rankRowsHTML(repos)}</div>
   </section>`;
 }
 
+function wireRankings() {
+  const search = document.getElementById("rank-search") as HTMLInputElement | null;
+  const select = document.getElementById("rank-lang") as HTMLSelectElement | null;
+  const list = document.getElementById("rank-list");
+  const count = document.getElementById("rank-count");
+  if (!search || !select || !list || !count) return;
+
+  const update = () => {
+    const filtered = applyFilter(search.value, select.value);
+    list.innerHTML = rankRowsHTML(filtered);
+    count.textContent = `${grouped(filtered.length)} match${filtered.length === 1 ? "" : "es"}`;
+  };
+  search.addEventListener("input", update);
+  select.addEventListener("change", update);
+  count.textContent = `${grouped(ALL_REPOS.length)} repos`;
+}
+
+// ---------- language distribution ----------
+function languages(langs: LanguageCount[]): string {
+  const top = langs.slice(0, 18);
+  const max = Math.max(...top.map((l) => l.repos), 1);
+  const rows = top
+    .map((l, i) => {
+      const w = ((l.repos / max) * 100).toFixed(1);
+      return `
+      <div class="lang-row" style="--w:${w}%; --i:${i}">
+        <span class="lang-name">${esc(l.language)}</span>
+        <span class="lang-bar"><span class="lang-fill"></span></span>
+        <span class="lang-val">${compact(l.repos)} <em>· ${compact(l.stars)}★</em></span>
+      </div>`;
+    })
+    .join("");
+  return `
+  <section class="section">
+    <div class="section-head">
+      <div class="eyebrow">II · Tongues of the sky</div>
+      <h2>Language distribution</h2>
+      <p>Which languages the surveyed repositories are written in — by count, with
+        their total gathered starlight alongside.</p>
+    </div>
+    <div class="lang-chart">${rows}</div>
+  </section>`;
+}
+
+// ---------- trends ----------
 function trends(data: YearBucket[]): string {
   const pts = data.filter((d) => d.year >= 2007 && d.year <= 2100);
   const W = 1000;
@@ -143,7 +226,7 @@ function trends(data: YearBucket[]): string {
   return `
   <section class="section">
     <div class="section-head">
-      <div class="eyebrow">II · The widening sky</div>
+      <div class="eyebrow">III · The widening sky</div>
       <h2>Growth over time</h2>
       <p>Repositories grouped by the year they were created — how many appeared,
         and how much light (stars) they have since gathered.</p>
@@ -161,10 +244,10 @@ function trends(data: YearBucket[]): string {
           </linearGradient>
         </defs>
         <polygon points="${starArea}" fill="url(#starfill)" />
-        <polyline points="${starLine}" fill="none" stroke="var(--gold)" stroke-width="2.5"
-          stroke-linejoin="round" stroke-linecap="round" />
-        <polyline points="${repoLine}" fill="none" stroke="var(--cyan)" stroke-width="2"
-          stroke-dasharray="2 5" stroke-linecap="round" opacity="0.9" />
+        <polyline class="draw" pathLength="1" points="${starLine}" fill="none" stroke="var(--gold)"
+          stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />
+        <polyline class="draw draw-2" pathLength="1" points="${repoLine}" fill="none" stroke="var(--cyan)"
+          stroke-width="2" stroke-dasharray="2 5" stroke-linecap="round" opacity="0.9" />
         ${dots}
         ${ticks}
       </svg>
@@ -172,18 +255,15 @@ function trends(data: YearBucket[]): string {
   </section>`;
 }
 
+// ---------- topic constellation ----------
 function constellation(topics: TopicCount[]): string {
   const top = topics.slice(0, 80);
   const max = Math.max(...top.map((t) => t.repos), 1);
   const min = Math.min(...top.map((t) => t.repos), 1);
-  const size = (v: number) => {
-    const t = (Math.sqrt(v) - Math.sqrt(min)) / (Math.sqrt(max) - Math.sqrt(min) || 1);
-    return (0.85 + t * 1.9).toFixed(2);
-  };
-  const opacity = (v: number) => {
-    const t = (Math.sqrt(v) - Math.sqrt(min)) / (Math.sqrt(max) - Math.sqrt(min) || 1);
-    return (0.45 + t * 0.55).toFixed(2);
-  };
+  const norm = (v: number) =>
+    (Math.sqrt(v) - Math.sqrt(min)) / (Math.sqrt(max) - Math.sqrt(min) || 1);
+  const size = (v: number) => (0.85 + norm(v) * 1.9).toFixed(2);
+  const opacity = (v: number) => (0.45 + norm(v) * 0.55).toFixed(2);
   const items = top
     .map(
       (t) =>
@@ -198,7 +278,7 @@ function constellation(topics: TopicCount[]): string {
   return `
   <section class="section">
     <div class="section-head">
-      <div class="eyebrow">III · Named constellations</div>
+      <div class="eyebrow">IV · Named constellations</div>
       <h2>Topic constellation</h2>
       <p>The topics communities tag themselves with, sized by how many
         repositories carry each. Larger means more crowded sky.</p>
@@ -219,15 +299,14 @@ function footer(meta: Meta): string {
 function reveal() {
   const obs = new IntersectionObserver(
     (entries) => {
-      entries.forEach((e, i) => {
+      entries.forEach((e) => {
         if (e.isIntersecting) {
-          (e.target as HTMLElement).style.animationDelay = `${Math.min(i * 80, 240)}ms`;
           e.target.classList.add("in");
           obs.unobserve(e.target);
         }
       });
     },
-    { threshold: 0.12 }
+    { threshold: 0.1 }
   );
   document.querySelectorAll(".section").forEach((s) => obs.observe(s));
 }
@@ -236,14 +315,21 @@ async function main() {
   const app = document.getElementById("app")!;
   app.innerHTML = `<div class="loading">Charting the sky…</div>`;
   try {
-    const [meta, repos, yr, topics] = await Promise.all([
+    const [meta, repos, yr, topics, langs] = await Promise.all([
       getJSON<Meta>("meta.json"),
       getJSON<TopRepo[]>("top_repos.json"),
       getJSON<YearBucket[]>("trends.json"),
       getJSON<TopicCount[]>("topics.json"),
+      getJSON<LanguageCount[]>("languages.json"),
     ]);
     app.innerHTML =
-      hero(meta) + rankings(repos) + trends(yr) + constellation(topics) + footer(meta);
+      hero(meta) +
+      rankings(repos, langs) +
+      languages(langs) +
+      trends(yr) +
+      constellation(topics) +
+      footer(meta);
+    wireRankings();
     reveal();
   } catch (err) {
     app.innerHTML = `<div class="loading">Could not load the survey data.<br/>${esc(
