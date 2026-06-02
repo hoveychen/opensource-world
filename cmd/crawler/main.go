@@ -11,7 +11,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -239,66 +238,16 @@ func cmdEnrich(args []string) error {
 	if err != nil {
 		return err
 	}
-	target := pending
-	if *limit > 0 && int64(*limit) < target {
-		target = int64(*limit)
-	}
-	log.Printf("enriching %d repos via ecosyste.ms (%d pending total)", target, pending)
+	log.Printf("enriching via ecosyste.ms (%d pending total)", pending)
 
-	const batchSize = 500
-	done := 0
-	for ctx.Err() == nil {
-		remaining := batchSize
-		if *limit > 0 {
-			if done >= *limit {
-				break
-			}
-			if r := *limit - done; r < remaining {
-				remaining = r
-			}
-		}
-		names, err := database.PendingEnrichment(remaining)
-		if err != nil {
-			return err
-		}
-		if len(names) == 0 {
-			break
-		}
-		for _, name := range names {
-			if ctx.Err() != nil {
-				break
-			}
-			repo, err := client.GetRepository(ctx, name)
-			switch {
-			case err == nil:
-				if e := database.SetEnrichment(name, repo.Language, repo.License, repo.Topics); e != nil {
-					return e
-				}
-			case isNotFound(err):
-				// Not on ecosyste.ms: mark processed so we don't retry forever.
-				if e := database.SetEnrichment(name, "", "", nil); e != nil {
-					return e
-				}
-			case ctx.Err() != nil:
-				// interrupted mid-request
-			default:
-				return fmt.Errorf("enrich %s: %w", name, err)
-			}
-			done++
-			if done%200 == 0 {
-				log.Printf("enriched %d/%d", done, target)
-			}
-		}
+	stamped, failed, err := ecosystems.Enrich(ctx, database, client, *limit)
+	if err != nil {
+		return err
 	}
 	if ctx.Err() != nil {
-		log.Printf("interrupted after %d; progress saved (resume by re-running)", done)
+		log.Printf("interrupted after %d (skipped %d after errors); progress saved (resume by re-running)", stamped, failed)
 		return nil
 	}
-	log.Printf("done. enriched %d repos this run", done)
+	log.Printf("done. enriched %d repos this run (skipped %d after errors)", stamped, failed)
 	return nil
-}
-
-func isNotFound(err error) bool {
-	var nf *ecosystems.NotFound
-	return errors.As(err, &nf)
 }
