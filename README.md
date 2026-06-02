@@ -131,3 +131,24 @@ Notes:
   enrich.
 - Per-job time is capped at 6h; `-max-runtime` makes each phase exit cleanly before
   then with progress saved.
+
+## Visualization
+
+`web/` is a static visualization site (Vite + TypeScript, hand-built SVG — no chart
+library). It reads small pre-aggregated JSON, so the browser never loads the full
+database. Three views: **star ranking**, **growth over time** (by creation year),
+and a **topic constellation**.
+
+The data pipeline is `crawler aggregate`, which turns the DuckDB into a handful of
+small JSON files:
+
+```bash
+./bin/crawler aggregate -out web/public/data   # meta/top_repos/trends/topics.json
+cd web && pnpm install && pnpm dev             # local dev
+```
+
+`.github/workflows/pages.yml` rebuilds and deploys the site to **GitHub Pages**
+after each crawl finishes (and on demand): it restores the DB from the `db`
+release, runs `aggregate`, builds `web/`, and deploys. Enable Pages once with
+source = **GitHub Actions** (Settings → Pages). The site lives at
+`https://hoveychen.github.io/opensource-world/`.
