@@ -109,8 +109,17 @@ a:hover {
   border-radius: 2em;
   padding: 0.05rem 0.55rem;
 }
-.theme-toggle {
+.star-badge {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  line-height: 0;
+}
+.star-badge img {
+  display: block;
+}
+.theme-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
