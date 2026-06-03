@@ -156,7 +156,7 @@ func (d *DB) SetEnrichment(fullName string, r *ecosystems.Repository) error {
 		if r.CommitStats != nil {
 			commits = int64(r.CommitStats.TotalCommits)
 			comtrs = int64(r.CommitStats.TotalCommitters)
-			dds = r.CommitStats.DDS
+			dds = float64(r.CommitStats.DDS)
 		}
 		if score, ok := r.ScorecardScore(); ok {
 			scorecardVal = score

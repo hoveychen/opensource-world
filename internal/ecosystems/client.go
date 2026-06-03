@@ -72,9 +72,29 @@ type Repository struct {
 
 // CommitStats captures the bus-factor signals from ecosyste.ms.
 type CommitStats struct {
-	TotalCommits    int     `json:"total_commits"`
-	TotalCommitters int     `json:"total_committers"`
-	DDS             float64 `json:"dds"` // developer distribution score: lower = more bus-factor risk
+	TotalCommits    int       `json:"total_commits"`
+	TotalCommitters int       `json:"total_committers"`
+	DDS             flexFloat `json:"dds"` // developer distribution score: lower = more bus-factor risk
+}
+
+// flexFloat parses a float that ecosyste.ms serializes inconsistently — as a
+// JSON number for some repos and a quoted string for others (commit_stats.dds
+// is "0.245..." for fatedier/frp but 0.9065 for facebook/react). A null or
+// empty value decodes to 0.
+type flexFloat float64
+
+func (f *flexFloat) UnmarshalJSON(b []byte) error {
+	s := strings.Trim(string(b), `"`)
+	if s == "" || s == "null" {
+		*f = 0
+		return nil
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return err
+	}
+	*f = flexFloat(v)
+	return nil
 }
 
 // Metadata.Files maps a governance-file kind (readme, contributing, security,
