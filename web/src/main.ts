@@ -19,6 +19,9 @@ type TopRepo = {
 type YearBucket = { year: number; repos: number; stars: number };
 type TopicCount = { topic: string; repos: number; stars: number };
 type LanguageCount = { language: string; repos: number; stars: number };
+type CoverageBand = { lo: number; hi: number; label: string };
+type CoverageCell = { repos: number; cov: number };
+type Coverage = { bands: CoverageBand[]; months: string[]; cells: CoverageCell[][] };
 
 const BASE = import.meta.env.BASE_URL;
 const dataURL = (name: string) => `${BASE}data/${name}`;
@@ -306,6 +309,85 @@ function topicsView(topics: TopicCount[]): string {
   );
 }
 
+// ---------- crawl coverage heatmap ----------
+// A (star band x creation month) grid. Cell fill = repo density (green ramp,
+// GitHub-contribution style); empty cells are split into "scanned, none found"
+// vs "not yet crawled" using the per-cell coverage ratio from crawl_windows.
+function coverageView(cov: Coverage): string {
+  const { bands, months, cells } = cov;
+  if (!bands.length || !months.length) {
+    return box("Coverage", "Crawl coverage map", "No coverage data yet.", "");
+  }
+  const maxRepos = Math.max(1, ...cells.flat().map((c) => c.repos));
+  const logMax = Math.log(maxRepos + 1);
+  // 0 = empty; 1..4 = green ramp (GitHub levels), by log of repo count.
+  const level = (repos: number): number =>
+    repos <= 0 ? 0 : Math.min(4, Math.max(1, Math.ceil((4 * Math.log(repos + 1)) / logMax)));
+
+  const cellHTML = (c: CoverageCell, band: CoverageBand, ym: string): string => {
+    let cls: string;
+    let state: string;
+    if (c.repos > 0) {
+      cls = `cov-cell lvl-${level(c.repos)}`;
+      state = `${grouped(c.repos)} repos`;
+    } else if (c.cov >= 0.5) {
+      cls = "cov-cell scanned";
+      state = "scanned · none found";
+    } else {
+      cls = "cov-cell uncrawled";
+      state = c.cov > 0 ? `partly crawled (${Math.round(c.cov * 100)}%)` : "not yet crawled";
+    }
+    return `<i class="${cls}" title="${band.label} ★ · ${ym}\n${state}"></i>`;
+  };
+
+  // Rows top-to-bottom = high stars to low, so the dense high-star band sits at
+  // the top like a ranking. bands come low->high, so iterate reversed.
+  const rows = bands
+    .map((_, i) => bands.length - 1 - i)
+    .map((b) => {
+      const tiles = months.map((m, c) => cellHTML(cells[b][c], bands[b], m)).join("");
+      return `<div class="cov-row"><span class="cov-rlabel">${esc(bands[b].label)}</span><div class="cov-tiles">${tiles}</div></div>`;
+    })
+    .join("");
+
+  // Year ticks: mark the first month of each year.
+  const ticks = months
+    .map((m, i) => {
+      const [y, mo] = m.split("-");
+      return mo === "01" || i === 0 ? `<span class="cov-tick" style="--c:${i}">${y}</span>` : "";
+    })
+    .join("");
+
+  const legend = `
+    <div class="cov-legend">
+      <span class="cov-legend-grp">Density
+        <i class="cov-cell scanned"></i>
+        <i class="cov-cell lvl-1"></i>
+        <i class="cov-cell lvl-2"></i>
+        <i class="cov-cell lvl-3"></i>
+        <i class="cov-cell lvl-4"></i>
+        more
+      </span>
+      <span class="cov-legend-grp"><i class="cov-cell scanned"></i> scanned, none found</span>
+      <span class="cov-legend-grp"><i class="cov-cell uncrawled"></i> not yet crawled</span>
+    </div>`;
+
+  const body = `
+    ${legend}
+    <div class="cov-scroll">
+      <div class="cov-grid" style="--cols:${months.length}">
+        ${rows}
+        <div class="cov-row cov-axis"><span class="cov-rlabel"></span><div class="cov-tiles cov-ticks">${ticks}</div></div>
+      </div>
+    </div>`;
+  return box(
+    "Coverage",
+    "Crawl coverage map",
+    "Each tile is one star band over one month of repository births. Green shows how many repositories live there; pale tiles were scanned and found empty, hollow tiles are not yet crawled.",
+    body
+  );
+}
+
 function footer(meta: Meta): string {
   return `
   <footer class="foot">
@@ -334,12 +416,13 @@ async function main() {
   const app = document.getElementById("app")!;
   app.innerHTML = `<div class="loading">Loading survey…</div>`;
   try {
-    const [meta, repos, yr, topics, langs] = await Promise.all([
+    const [meta, repos, yr, topics, langs, cov] = await Promise.all([
       getJSON<Meta>("meta.json"),
       getJSON<TopRepo[]>("top_repos.json"),
       getJSON<YearBucket[]>("trends.json"),
       getJSON<TopicCount[]>("topics.json"),
       getJSON<LanguageCount[]>("languages.json"),
+      getJSON<Coverage>("coverage.json"),
     ]);
     app.insertAdjacentHTML("beforebegin", topbar());
     wireTheme();
@@ -348,6 +431,7 @@ async function main() {
       rankings(repos, langs) +
       languages(langs) +
       trends(yr) +
+      coverageView(cov) +
       topicsView(topics) +
       footer(meta);
     wireRankings();
