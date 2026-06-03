@@ -76,6 +76,19 @@ function applyTheme(t: "light" | "dark") {
 }
 applyTheme(currentTheme());
 
+// buttons.js auto-renders any `.github-button` anchors present when it runs.
+// Our topbar is injected by JS after load, so we append the script only once
+// the anchor already exists in the DOM — otherwise the renderer never sees it.
+function loadGitHubButtons() {
+  if (document.getElementById("gh-buttons-js")) return;
+  const s = document.createElement("script");
+  s.id = "gh-buttons-js";
+  s.async = true;
+  s.defer = true;
+  s.src = "https://buttons.github.io/buttons.js";
+  document.body.appendChild(s);
+}
+
 function wireTheme() {
   const btn = document.getElementById("theme-toggle");
   if (!btn) return;
@@ -93,9 +106,12 @@ function topbar(): string {
       <span class="mark">${MARK}</span>
       <span class="path"><a href="https://github.com/hoveychen" target="_blank" rel="noopener">hoveychen</a><span class="sep">/</span><a href="https://github.com/hoveychen/opensource-world" target="_blank" rel="noopener">opensource-world</a></span>
       <span class="badge">Public</span>
-      <a class="star-badge" href="https://github.com/hoveychen/opensource-world/stargazers" target="_blank" rel="noopener" aria-label="Star opensource-world on GitHub">
-        <img src="https://img.shields.io/github/stars/hoveychen/opensource-world?style=social" alt="GitHub stars" height="20" loading="lazy" />
-      </a>
+      <span class="star-badge">
+        <a class="github-button" href="https://github.com/hoveychen/opensource-world"
+          data-color-scheme="no-preference: light; light: light; dark: dark;"
+          data-icon="octicon-star" data-size="large" data-show-count="true"
+          aria-label="Star hoveychen/opensource-world on GitHub">Star</a>
+      </span>
       <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle light/dark">${MOON}${SUN}</button>
     </div>
   </div>`;
@@ -343,6 +359,7 @@ async function main() {
     ]);
     app.insertAdjacentHTML("beforebegin", topbar());
     wireTheme();
+    loadGitHubButtons();
     app.innerHTML =
       hero(meta) +
       rankings(repos, langs) +

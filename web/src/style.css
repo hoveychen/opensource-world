@@ -116,7 +116,8 @@ a:hover {
   flex-shrink: 0;
   line-height: 0;
 }
-.star-badge img {
+/* buttons.js replaces the anchor with an inline iframe */
+.star-badge iframe {
   display: block;
 }
 .theme-toggle {
