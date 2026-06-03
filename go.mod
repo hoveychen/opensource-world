@@ -2,7 +2,10 @@ module github.com/hoveychen/opensource-world
 
 go 1.26.1
 
-require github.com/marcboeker/go-duckdb/v2 v2.4.3
+require (
+	github.com/marcboeker/go-duckdb/v2 v2.4.3
+	golang.org/x/sync v0.16.0
+)
 
 require (
 	github.com/apache/arrow-go/v18 v18.4.1 // indirect
@@ -24,7 +27,6 @@ require (
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
 	golang.org/x/mod v0.27.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/tools v0.36.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect

@@ -11,22 +11,20 @@ on:
       min_stars:
         description: "Lower star bound for enumerate"
         default: "10"
-      enumerate_minutes:
-        description: "Minutes to spend enumerating (0 to skip)"
-        default: "180"
-      enrich_minutes:
-        description: "Minutes to spend enriching via ecosyste.ms (0 to skip)"
-        default: "120"
+      crawl_minutes:
+        description: "Minutes to run enumerate + enrich concurrently"
+        default: "50"
       mailto:
         description: "Contact email for the ecosyste.ms polite pool"
         default: "yuheng_chen@outlook.com"
   schedule:
     # Hourly. Rate-limit quotas (ecosyste.ms polite ~15k/hr, GitHub Search) reset
-    # every hour, so we want a crawl running every hour. The concurrency guard
-    # below means an hourly trigger that lands while a long job is still running
-    # just queues — when the running job ends, the queued one starts immediately,
-    # giving near-continuous long runs (DB transferred once per long run, not
-    # once per hour) while still using each hour's quota.
+    # every hour, so each run crawls for one quota window then saves the DB. The
+    # job runs enumerate + enrich concurrently for ~50 min (under the 60-min job
+    # timeout, leaving room for restore/build/save), so the DB is persisted once
+    # per hour rather than once per multi-hour run — a crash or preemption now
+    # loses at most one hour of progress. The concurrency guard keeps runs from
+    # overlapping; if one overruns, the next hourly trigger just queues.
     - cron: "0 * * * *"
 
 # Need write access to publish the DB as a release asset.
@@ -41,15 +39,14 @@ concurrency:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 350 # under the 360-minute hard cap
+    timeout-minutes: 60 # one quota window per run; crawl_minutes leaves overhead
     env:
       RELEASE_TAG: db
       ASSET: repos.duckdb.gz
       DB_PATH: data/repos.duckdb
       # Inputs are empty on a scheduled run; fall back to sensible defaults.
       MIN_STARS: ${{ github.event.inputs.min_stars || '10' }}
-      ENUMERATE_MINUTES: ${{ github.event.inputs.enumerate_minutes || '180' }}
-      ENRICH_MINUTES: ${{ github.event.inputs.enrich_minutes || '120' }}
+      CRAWL_MINUTES: ${{ github.event.inputs.crawl_minutes || '50' }}
       MAILTO: ${{ github.event.inputs.mailto || 'yuheng_chen@outlook.com' }}
     steps:
       - uses: actions/checkout@v4
@@ -73,17 +70,17 @@ jobs:
       - name: Build
         run: CGO_ENABLED=1 go build -o bin/crawler ./cmd/crawler
 
-      - name: Enumerate
-        if: ${{ env.ENUMERATE_MINUTES != '0' }}
+      # One process runs enumerate + enrich concurrently. They hit independent,
+      # hourly-resetting quotas (GitHub Search ~30/min, ecosyste.ms ~15k/hr), so
+      # running them at the same time saturates both budgets instead of leaving
+      # one idle while the other runs (the old serial Enumerate-then-Enrich steps
+      # wasted ~half of each API's hourly quota). Splitting into two parallel
+      # jobs is impossible — they'd clobber each other's DB release asset.
+      - name: Crawl
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: ./bin/crawler enumerate -min-stars "$MIN_STARS" -max-runtime "${ENUMERATE_MINUTES}m"
-
-      - name: Enrich
-        if: ${{ env.ENRICH_MINUTES != '0' }}
-        env:
           ECOSYSTEMS_MAILTO: ${{ env.MAILTO }}
-        run: ./bin/crawler enrich -max-runtime "${ENRICH_MINUTES}m"
+        run: ./bin/crawler crawl -min-stars "$MIN_STARS" -max-runtime "${CRAWL_MINUTES}m"
 
       - name: Stats
         if: always()
