@@ -255,38 +255,189 @@ a:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.9rem 0 0.5rem;
+  padding: 0.9rem 0 0.4rem;
 }
-.controls input[type="search"],
-.controls select {
-  font-family: var(--sans);
-  font-size: 0.85rem;
-  color: var(--fg);
+.search-wrap {
+  flex: 1 1 18rem;
+  min-width: 12rem;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   background: var(--bg-inset);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 0.4rem 0.7rem;
-  outline: none;
+  padding: 0 0.7rem;
 }
-.controls input[type="search"] {
-  flex: 1 1 18rem;
-  min-width: 12rem;
-}
-.controls input::placeholder {
-  color: var(--fg-muted);
-}
-.controls input:focus,
-.controls select:focus {
+.search-wrap:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-subtle);
 }
-.controls select {
-  cursor: pointer;
+.search-wrap .ico {
+  color: var(--fg-muted);
+  flex: none;
+}
+.controls input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  color: var(--fg);
+  background: transparent;
+  border: none;
+  padding: 0.45rem 0;
+  outline: none;
+}
+.controls input::placeholder {
+  color: var(--fg-muted);
 }
 .controls .count {
   font-size: 0.8rem;
   color: var(--fg-muted);
   margin-left: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- faceted chip filters ---------- */
+.facets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.25rem 0 0.1rem;
+}
+.facet-group {
+  display: grid;
+  grid-template-columns: 4.75rem 1fr;
+  align-items: start;
+  gap: 0.5rem;
+}
+.facet-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  padding-top: 0.32rem;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--fg);
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 2em;
+  padding: 0.22rem 0.7rem;
+  line-height: 1.5;
+  cursor: pointer;
+  transition: background 0.13s, border-color 0.13s, color 0.13s;
+}
+.chip:hover {
+  border-color: var(--accent);
+}
+.chip.active {
+  background: var(--accent-subtle);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chip .chip-cnt {
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+.chip.active .chip-cnt {
+  color: var(--accent);
+  opacity: 0.75;
+}
+.chip .chip-hash {
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+.chip.active .chip-hash {
+  color: var(--accent);
+}
+.chip .lang-dot {
+  margin-right: 0;
+  top: 0;
+}
+.chip-extra {
+  display: none;
+}
+.facet-group.expanded .chip-extra {
+  display: inline-flex;
+}
+.chip-more {
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.22rem 0.4rem;
+  align-self: center;
+}
+.chip-more:hover {
+  text-decoration: underline;
+}
+
+/* ---------- active filter tokens ---------- */
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0 0.1rem;
+}
+.token {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: var(--sans);
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent);
+  border-radius: 2em;
+  padding: 0.16rem 0.3rem 0.16rem 0.65rem;
+  cursor: pointer;
+}
+.token .token-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  font-size: 0.95rem;
+  line-height: 1;
+  transition: background 0.13s, color 0.13s;
+}
+.token:hover .token-x {
+  background: var(--accent);
+  color: #fff;
+}
+.clear-all {
+  font-family: var(--sans);
+  font-size: 0.74rem;
+  color: var(--fg-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  margin-left: 0.15rem;
+}
+.clear-all:hover {
+  color: var(--fg);
+  text-decoration: underline;
 }
 .empty {
   color: var(--fg-muted);
@@ -563,11 +714,14 @@ html {
 .topic {
   background: var(--accent-subtle);
   color: var(--accent);
+  border: none;
   border-radius: 2em;
   padding: 0.2rem 0.75rem;
+  font-family: var(--sans);
   font-size: 0.78rem;
   font-weight: 500;
   line-height: 1.6;
+  cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 .topic:hover {

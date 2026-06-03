@@ -74,6 +74,7 @@ function langDot(lang: string): string {
 // Octicons (16) used inline.
 const STAR = `<svg class="ico" aria-hidden="true" height="14" width="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/></svg>`;
 const FORK = `<svg class="ico" aria-hidden="true" height="14" width="14" viewBox="0 0 16 16" fill="currentColor"><path d="M5 5.372v.878c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.878a2.25 2.25 0 1 1 1.5 0v.878a2.25 2.25 0 0 1-2.25 2.25h-1.5v2.128a2.251 2.251 0 1 1-1.5 0V8.5h-1.5A2.25 2.25 0 0 1 3.5 6.25v-.878a2.25 2.25 0 1 1 1.5 0ZM5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Zm6.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm-3 8.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z"/></svg>`;
+const SEARCH = `<svg class="ico" aria-hidden="true" height="14" width="14" viewBox="0 0 16 16" fill="currentColor"><path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.041a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"/></svg>`;
 const MARK = `<svg height="20" width="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>`;
 const MOON = `<svg class="i-moon" height="16" width="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M9.598 1.591a.749.749 0 0 1 .785-.175 7.001 7.001 0 1 1-8.967 8.967.75.75 0 0 1 .961-.96 5.5 5.5 0 0 0 7.046-7.046.75.75 0 0 1 .175-.786Zm1.616 1.945a7 7 0 0 1-7.678 7.678 5.499 5.499 0 1 0 7.678-7.678Z"/></svg>`;
 const SUN = `<svg class="i-sun" height="16" width="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-1.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Zm5.657-8.157a.75.75 0 0 1 0 1.061l-1.061 1.06a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l1.06-1.06a.75.75 0 0 1 1.06 0Zm-9.193 9.193a.75.75 0 0 1 0 1.06l-1.06 1.061a.75.75 0 1 1-1.061-1.06l1.06-1.061a.75.75 0 0 1 1.061 0ZM8 0a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V.75A.75.75 0 0 1 8 0ZM3 8a.75.75 0 0 1-.75.75H.75a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 3 8Zm13 0a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 16 8Zm-8 5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 13Zm3.536-1.464a.75.75 0 0 1 1.06 0l1.061 1.06a.75.75 0 0 1-1.06 1.061l-1.061-1.06a.75.75 0 0 1 0-1.061ZM2.343 2.343a.75.75 0 0 1 1.061 0l1.06 1.061a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-1.06-1.06a.75.75 0 0 1 0-1.06Z"/></svg>`;
@@ -208,7 +209,39 @@ function wireNav() {
 
 // ---------- interactive star ranking ----------
 const SHOW = 40;
+const LANG_SHOWN = 12;
+const TOPIC_SHOWN = 16;
 let ALL_REPOS: TopRepo[] = [];
+// Active filter state, shared between the chip facets, the search box and the
+// Topics-section pills (which feed topics in via filterByTopic).
+const FILTER = { q: "", lang: "", topics: new Set<string>() };
+// wireRankings() publishes its re-render here so outside callers (the Topics
+// constellation) can apply a filter and refresh the list.
+let rerankList: (() => void) | null = null;
+
+type ChipCount = { key: string; count: number };
+
+// Chip counts are derived from the loaded top repos (not the global
+// languages/topics aggregates) so every chip's count matches exactly what the
+// ranking shows when clicked, and no chip can ever yield zero results.
+function countBy(pick: (r: TopRepo) => string[]): ChipCount[] {
+  const m = new Map<string, number>();
+  for (const r of ALL_REPOS)
+    for (const k of pick(r)) if (k) m.set(k, (m.get(k) ?? 0) + 1);
+  return [...m.entries()]
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+}
+const langChips = () => countBy((r) => [r.language]);
+const topicChips = () => countBy((r) => r.topics);
+
+// Apply a topic filter from outside the ranking (the Topics constellation),
+// then scroll the ranking into view so the effect is visible.
+function filterByTopic(topic: string) {
+  FILTER.topics.add(topic);
+  rerankList?.();
+  document.getElementById("ranking")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
 function rankRowsHTML(repos: TopRepo[]): string {
   if (!repos.length) return `<div class="empty">No repositories match that filter.</div>`;
@@ -236,10 +269,11 @@ function rankRowsHTML(repos: TopRepo[]): string {
     .join("");
 }
 
-function applyFilter(query: string, lang: string): TopRepo[] {
-  const q = query.trim().toLowerCase();
+function applyFilter(): TopRepo[] {
+  const q = FILTER.q.trim().toLowerCase();
   return ALL_REPOS.filter((r) => {
-    if (lang && r.language !== lang) return false;
+    if (FILTER.lang && r.language !== FILTER.lang) return false;
+    for (const t of FILTER.topics) if (!r.topics.includes(t)) return false;
     if (!q) return true;
     return (
       r.full_name.toLowerCase().includes(q) ||
@@ -249,43 +283,147 @@ function applyFilter(query: string, lang: string): TopRepo[] {
   });
 }
 
-function rankings(repos: TopRepo[], langs: LanguageCount[]): string {
+function langChipHTML(c: ChipCount, extra: boolean): string {
+  return `<button class="chip lang-chip${extra ? " chip-extra" : ""}" type="button" data-lang="${esc(c.key)}">${langDot(c.key)}<span class="chip-label">${esc(c.key)}</span><span class="chip-cnt">${compact(c.count)}</span></button>`;
+}
+function topicChipHTML(c: ChipCount, extra: boolean): string {
+  return `<button class="chip topic-chip${extra ? " chip-extra" : ""}" type="button" data-topic="${esc(c.key)}"><span class="chip-hash">#</span><span class="chip-label">${esc(c.key)}</span><span class="chip-cnt">${compact(c.count)}</span></button>`;
+}
+function moreBtnHTML(kind: string, hidden: number): string {
+  return hidden > 0
+    ? `<button class="chip-more" type="button" data-more="${kind}" data-more-label="+${hidden} more">+${hidden} more</button>`
+    : "";
+}
+function tokenHTML(kind: string, val: string, label: string): string {
+  return `<button class="token" type="button" data-tkind="${kind}" data-tval="${esc(val)}" aria-label="Remove ${esc(label)} filter">${esc(label)}<span class="token-x" aria-hidden="true">×</span></button>`;
+}
+
+function rankings(repos: TopRepo[]): string {
   ALL_REPOS = repos;
-  const options = langs
-    .map((l) => `<option value="${esc(l.language)}">${esc(l.language)} · ${compact(l.repos)}</option>`)
-    .join("");
+  const langs = langChips();
+  const topics = topicChips();
+  const langHTML =
+    `<button class="chip lang-chip lang-all active" type="button" data-lang="">All</button>` +
+    langs.map((c, i) => langChipHTML(c, i >= LANG_SHOWN)).join("") +
+    moreBtnHTML("lang", Math.max(0, langs.length - LANG_SHOWN));
+  const topicHTML =
+    topics.map((c, i) => topicChipHTML(c, i >= TOPIC_SHOWN)).join("") +
+    moreBtnHTML("topic", Math.max(0, topics.length - TOPIC_SHOWN));
   const body = `
     <div class="controls">
-      <input id="rank-search" type="search" placeholder="Search name, description or topic…" autocomplete="off" />
-      <select id="rank-lang">
-        <option value="">All languages</option>
-        ${options}
-      </select>
+      <div class="search-wrap">${SEARCH}<input id="rank-search" type="search" placeholder="Search name, description or topic…" autocomplete="off" /></div>
       <span id="rank-count" class="count"></span>
     </div>
+    <div class="facets" id="rank-facets">
+      <div class="facet-group" data-group="lang">
+        <span class="facet-label">Language</span>
+        <div class="chips">${langHTML}</div>
+      </div>
+      <div class="facet-group" data-group="topic">
+        <span class="facet-label">Topics</span>
+        <div class="chips">${topicHTML}</div>
+      </div>
+    </div>
+    <div class="active-filters" id="rank-active" hidden></div>
     <div class="rank" id="rank-list">${rankRowsHTML(repos)}</div>`;
   return box(
     "Ranking",
     "Most-starred repositories",
-    `Search by name, description or topic, or filter to a single language. Top ${SHOW} matches shown.`,
+    `Click a language or topic to filter — combine several to narrow down — or search by name. Top ${SHOW} matches shown.`,
     body
   );
 }
 
 function wireRankings() {
   const search = document.getElementById("rank-search") as HTMLInputElement | null;
-  const select = document.getElementById("rank-lang") as HTMLSelectElement | null;
+  const facets = document.getElementById("rank-facets");
   const list = document.getElementById("rank-list");
   const count = document.getElementById("rank-count");
-  if (!search || !select || !list || !count) return;
-  const update = () => {
-    const filtered = applyFilter(search.value, select.value);
-    list.innerHTML = rankRowsHTML(filtered);
-    count.textContent = `${grouped(filtered.length)} match${filtered.length === 1 ? "" : "es"}`;
+  const active = document.getElementById("rank-active");
+  if (!search || !facets || !list || !count || !active) return;
+
+  const syncChips = () => {
+    facets.querySelectorAll<HTMLElement>(".lang-chip").forEach((b) => {
+      b.classList.toggle("active", (b.dataset.lang ?? "") === FILTER.lang);
+    });
+    facets.querySelectorAll<HTMLElement>(".topic-chip").forEach((b) => {
+      b.classList.toggle("active", FILTER.topics.has(b.dataset.topic ?? ""));
+    });
   };
-  search.addEventListener("input", update);
-  select.addEventListener("change", update);
-  count.textContent = `${grouped(ALL_REPOS.length)} repos`;
+
+  const renderActive = () => {
+    const tokens: string[] = [];
+    if (FILTER.lang) tokens.push(tokenHTML("lang", FILTER.lang, FILTER.lang));
+    FILTER.topics.forEach((t) => tokens.push(tokenHTML("topic", t, `#${t}`)));
+    if (!tokens.length) {
+      active.hidden = true;
+      active.innerHTML = "";
+      return;
+    }
+    active.hidden = false;
+    active.innerHTML = tokens.join("") + `<button class="clear-all" type="button" data-clear>Clear all</button>`;
+  };
+
+  const render = () => {
+    const filtered = applyFilter();
+    list.innerHTML = rankRowsHTML(filtered);
+    count.textContent = `${grouped(filtered.length)} ${filtered.length === 1 ? "repo" : "repos"}`;
+    syncChips();
+    renderActive();
+  };
+  rerankList = render;
+
+  search.addEventListener("input", () => {
+    FILTER.q = search.value;
+    render();
+  });
+
+  facets.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest("button");
+    if (!btn) return;
+    if (btn.dataset.more) {
+      const grp = btn.closest(".facet-group");
+      const expanded = grp?.classList.toggle("expanded");
+      btn.textContent = expanded ? "show less" : btn.dataset.moreLabel ?? btn.textContent;
+      return;
+    }
+    if (btn.classList.contains("lang-chip")) {
+      const v = btn.dataset.lang ?? "";
+      FILTER.lang = v === FILTER.lang ? "" : v;
+      render();
+    } else if (btn.classList.contains("topic-chip")) {
+      const v = btn.dataset.topic ?? "";
+      if (FILTER.topics.has(v)) FILTER.topics.delete(v);
+      else FILTER.topics.add(v);
+      render();
+    }
+  });
+
+  active.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest("button");
+    if (!btn) return;
+    if (btn.dataset.clear !== undefined) {
+      FILTER.lang = "";
+      FILTER.topics.clear();
+    } else if (btn.dataset.tkind === "lang") {
+      FILTER.lang = "";
+    } else if (btn.dataset.tkind === "topic") {
+      FILTER.topics.delete(btn.dataset.tval ?? "");
+    }
+    render();
+  });
+
+  render();
+}
+
+function wireTopics() {
+  const c = document.querySelector(".constellation");
+  if (!c) return;
+  c.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>(".topic");
+    if (!btn || !btn.dataset.topic) return;
+    filterByTopic(btn.dataset.topic);
+  });
 }
 
 // ---------- language distribution ----------
@@ -364,14 +502,14 @@ function topicsView(topics: TopicCount[]): string {
     .slice(0, 80)
     .map(
       (t) =>
-        `<a class="topic" href="https://github.com/topics/${encodeURIComponent(t.topic)}" target="_blank" rel="noopener"
-        title="${grouped(t.repos)} repos · ${grouped(t.stars)} stars">${esc(t.topic)}<span class="cnt">${compact(t.repos)}</span></a>`
+        `<button class="topic" type="button" data-topic="${esc(t.topic)}"
+        title="${grouped(t.repos)} repos · ${grouped(t.stars)} stars — click to filter the ranking">${esc(t.topic)}<span class="cnt">${compact(t.repos)}</span></button>`
     )
     .join("");
   return box(
     "Topics",
     "Popular topics",
-    "The topics communities tag their repositories with, most-used first. Each pill shows how many repositories carry it.",
+    "The topics communities tag their repositories with, most-used first. Click any pill to filter the ranking above by that topic.",
     `<div class="constellation">${items}</div>`
   );
 }
@@ -582,7 +720,7 @@ async function main() {
     app.innerHTML =
       hero(meta) +
       sectionNav() +
-      rankings(repos, langs) +
+      rankings(repos) +
       languages(langs) +
       trends(yr) +
       coverageView(cov) +
@@ -590,6 +728,7 @@ async function main() {
       topicsView(topics) +
       footer(meta);
     wireRankings();
+    wireTopics();
     wireNav();
     reveal();
   } catch (err) {
