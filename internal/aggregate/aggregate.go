@@ -16,7 +16,7 @@ import (
 )
 
 // Run writes meta.json, top_repos.json, trends.json, topics.json,
-// languages.json and coverage.json into outDir.
+// languages.json, coverage.json and health.json into outDir.
 func Run(database *db.DB, outDir string) error {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
@@ -38,6 +38,9 @@ func Run(database *db.DB, outDir string) error {
 	}
 	if err := writeCoverage(database, outDir); err != nil {
 		return fmt.Errorf("coverage: %w", err)
+	}
+	if err := writeHealth(database, outDir); err != nil {
+		return fmt.Errorf("health: %w", err)
 	}
 	return nil
 }
@@ -439,4 +442,125 @@ func overlapDays(aLo, aHi, bLo, bHi time.Time) int {
 
 func daysInclusive(lo, hi time.Time) int {
 	return int(hi.Sub(lo).Hours()/24) + 1
+}
+
+// ---------- project health (bus-factor, governance files, OSSF scorecard) ----------
+
+// DDSBucket counts repos whose developer-distribution score (commit_stats.dds)
+// falls in [Lo, Hi). A low DDS means commits concentrate in few hands (bus-factor
+// risk); a high DDS means they spread across many contributors.
+type DDSBucket struct {
+	Lo    float64 `json:"lo"`
+	Hi    float64 `json:"hi"`
+	Repos int64   `json:"repos"`
+}
+
+// FileAdoption is how many enriched repos carry a given governance file kind
+// (readme, license, contributing, security, ...) and the share of repos that do.
+type FileAdoption struct {
+	Kind    string  `json:"kind"`
+	Present int64   `json:"present"`
+	Rate    float64 `json:"rate"`
+}
+
+// HealthData is the project-health payload. EnrichedStats is the number of repos
+// that carry ecosyste.ms enrichment with usable data (subscribers present), i.e.
+// the denominator behind the distributions; it is 0 until an enrich pass with the
+// new fields has run.
+type HealthData struct {
+	EnrichedStats  int64          `json:"enriched_stats"`
+	DDSBuckets     []DDSBucket    `json:"dds_buckets"`
+	Files          []FileAdoption `json:"files"`
+	ScorecardCount int64          `json:"scorecard_count"`
+	ScorecardAvg   float64        `json:"scorecard_avg"`
+}
+
+// ddsBuckets are five equal DDS bands, [0,0.2) ... [0.8,1.0]. The top band is
+// closed so a dds of exactly 1.0 lands in it.
+var ddsBuckets = [][2]float64{{0, 0.2}, {0.2, 0.4}, {0.4, 0.6}, {0.6, 0.8}, {0.8, 1.0}}
+
+// writeHealth builds health.json: the DDS (bus-factor) distribution, governance
+// file adoption rates, and the OSSF scorecard average — all derived from the
+// eco_* enrichment columns. Repos without enrichment data simply don't count.
+func writeHealth(d *db.DB, outDir string) error {
+	out := HealthData{DDSBuckets: make([]DDSBucket, len(ddsBuckets))}
+	for i, b := range ddsBuckets {
+		out.DDSBuckets[i] = DDSBucket{Lo: b[0], Hi: b[1]}
+	}
+
+	// One scan over enriched rows tallies both the DDS histogram and file
+	// adoption; enriched_stats is that row count.
+	rows, err := d.Query(`SELECT eco_dds, coalesce(eco_files,'null')
+		FROM repos WHERE eco_subscribers IS NOT NULL`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	fileCount := map[string]int64{}
+	var filesDenom int64
+	for rows.Next() {
+		out.EnrichedStats++
+		var dds sql.NullFloat64
+		var rawFiles string
+		if err := rows.Scan(&dds, &rawFiles); err != nil {
+			return err
+		}
+		if dds.Valid {
+			out.DDSBuckets[ddsBucketOf(dds.Float64)].Repos++
+		}
+		var files []string
+		if json.Unmarshal([]byte(rawFiles), &files) == nil && len(files) > 0 {
+			filesDenom++
+			for _, k := range files {
+				if k != "" {
+					fileCount[k]++
+				}
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	out.Files = make([]FileAdoption, 0, len(fileCount))
+	for k, n := range fileCount {
+		rate := 0.0
+		if filesDenom > 0 {
+			rate = math.Round(float64(n)/float64(filesDenom)*1000) / 1000
+		}
+		out.Files = append(out.Files, FileAdoption{Kind: k, Present: n, Rate: rate})
+	}
+	sort.Slice(out.Files, func(i, j int) bool {
+		if out.Files[i].Present != out.Files[j].Present {
+			return out.Files[i].Present > out.Files[j].Present
+		}
+		return out.Files[i].Kind < out.Files[j].Kind
+	})
+
+	// OSSF scorecard average over repos that have a scorecard.
+	var cnt sql.NullInt64
+	var avg sql.NullFloat64
+	if err := d.QueryRow(`SELECT count(eco_scorecard_score), avg(eco_scorecard_score)
+		FROM repos WHERE eco_scorecard_score IS NOT NULL`).Scan(&cnt, &avg); err != nil {
+		return err
+	}
+	out.ScorecardCount = cnt.Int64
+	if avg.Valid {
+		out.ScorecardAvg = math.Round(avg.Float64*100) / 100
+	}
+
+	return writeJSON(outDir, "health.json", out)
+}
+
+// ddsBucketOf maps a DDS value in [0,1] to its bucket index.
+func ddsBucketOf(dds float64) int {
+	i := int(dds / 0.2)
+	if i >= len(ddsBuckets) {
+		i = len(ddsBuckets) - 1
+	}
+	if i < 0 {
+		i = 0
+	}
+	return i
 }

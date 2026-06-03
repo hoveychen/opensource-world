@@ -7,9 +7,11 @@ import (
 )
 
 // Store is the subset of the database the enrich loop needs. *db.DB satisfies it.
+// A nil repo means "no ecosyste.ms data" (e.g. a 404); the store still stamps the
+// row as processed so it is not retried forever.
 type Store interface {
 	PendingEnrichment(limit int) ([]string, error)
-	SetEnrichment(fullName, language, license string, topics []string) error
+	SetEnrichment(fullName string, repo *Repository) error
 }
 
 // Fetcher fetches a repository's metadata. *Client satisfies it.
@@ -55,14 +57,14 @@ func Enrich(ctx context.Context, store Store, f Fetcher, limit int) (stamped, fa
 			attempted++
 			switch {
 			case gerr == nil:
-				if e := store.SetEnrichment(name, repo.Language, repo.License, repo.Topics); e != nil {
+				if e := store.SetEnrichment(name, repo); e != nil {
 					return stamped, len(failedSet), e
 				}
 				stamped++
 				progressed = true
 			case isNotFound(gerr):
-				// Not on ecosyste.ms: stamp empty so we don't retry forever.
-				if e := store.SetEnrichment(name, "", "", nil); e != nil {
+				// Not on ecosyste.ms: stamp nil so we don't retry forever.
+				if e := store.SetEnrichment(name, nil); e != nil {
 					return stamped, len(failedSet), e
 				}
 				stamped++

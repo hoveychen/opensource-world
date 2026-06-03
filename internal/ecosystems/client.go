@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -54,10 +55,67 @@ func NewClient(mailto string) *Client {
 }
 
 // Repository is the subset of the ecosyste.ms repository object we store.
+//
+// CommitStats / Metadata / Scorecard are pointers because ecosyste.ms omits or
+// nulls them for many repos (e.g. a repo with no OSSF scorecard run); a nil
+// pointer means "not available", distinct from a zero value.
 type Repository struct {
-	Language string   `json:"language"`
-	License  string   `json:"license"`
-	Topics   []string `json:"topics"`
+	Language    string       `json:"language"`
+	License     string       `json:"license"`
+	Topics      []string     `json:"topics"`
+	Subscribers int          `json:"subscribers_count"` // true watchers/subscribers (GitHub Search's "watchers" is actually the star count)
+	TagsCount   int          `json:"tags_count"`        // number of git tags / releases
+	CommitStats *CommitStats `json:"commit_stats"`
+	Metadata    *Metadata    `json:"metadata"`
+	Scorecard   *Scorecard   `json:"scorecard"`
+}
+
+// CommitStats captures the bus-factor signals from ecosyste.ms.
+type CommitStats struct {
+	TotalCommits    int     `json:"total_commits"`
+	TotalCommitters int     `json:"total_committers"`
+	DDS             float64 `json:"dds"` // developer distribution score: lower = more bus-factor risk
+}
+
+// Metadata.Files maps a governance-file kind (readme, contributing, security,
+// funding, ...) to its path in the repo, or null when the file is absent.
+type Metadata struct {
+	Files map[string]*string `json:"files"`
+}
+
+// Scorecard wraps the OSSF Scorecard result; only the headline score is stored.
+type Scorecard struct {
+	Data *ScorecardData `json:"data"`
+}
+
+// ScorecardData carries the 0-10 aggregate OSSF Scorecard score.
+type ScorecardData struct {
+	Score float64 `json:"score"`
+}
+
+// PresentFiles returns the sorted kinds of governance files that exist in the
+// repo (the keys of Metadata.Files whose value is non-null). Returns nil when
+// metadata or its files map is absent.
+func (r *Repository) PresentFiles() []string {
+	if r.Metadata == nil || len(r.Metadata.Files) == 0 {
+		return nil
+	}
+	var present []string
+	for kind, path := range r.Metadata.Files {
+		if path != nil && *path != "" {
+			present = append(present, kind)
+		}
+	}
+	sort.Strings(present)
+	return present
+}
+
+// ScorecardScore returns the OSSF Scorecard score and whether it was present.
+func (r *Repository) ScorecardScore() (float64, bool) {
+	if r.Scorecard == nil || r.Scorecard.Data == nil {
+		return 0, false
+	}
+	return r.Scorecard.Data.Score, true
 }
 
 // NotFound reports whether an error from GetRepository was a 404 (repo missing

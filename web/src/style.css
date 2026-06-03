@@ -413,6 +413,97 @@ a:hover {
   font-weight: 600;
 }
 
+/* ---------- project health ---------- */
+.health {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+  padding-top: 0.4rem;
+}
+.health-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.55rem;
+}
+.health-head b {
+  font-size: 0.95rem;
+}
+.health-head span {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+.health-scorecard {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border-muted);
+  border-radius: 8px;
+  background: var(--accent-subtle);
+}
+.hs-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.hs-score {
+  font-family: var(--mono);
+  font-size: 1.05rem;
+  color: var(--accent);
+}
+.hs-score b {
+  font-size: 1.4rem;
+}
+.hs-sub {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+
+/* ---------- sticky section nav ---------- */
+html {
+  scroll-behavior: smooth;
+}
+.section {
+  scroll-margin-top: 3.4rem;
+}
+.section-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg-inset);
+  border-bottom: 1px solid var(--border);
+}
+.section-nav-inner {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0 1rem;
+  display: flex;
+  gap: 0.2rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.section-nav-inner::-webkit-scrollbar {
+  display: none;
+}
+.nav-link {
+  padding: 0.7rem 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--fg-muted);
+  text-decoration: none;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.nav-link:hover {
+  color: var(--fg);
+}
+.nav-link.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
 /* ---------- trends chart ---------- */
 .legend {
   display: flex;

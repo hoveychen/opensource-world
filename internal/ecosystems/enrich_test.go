@@ -25,7 +25,7 @@ func (s *fakeStore) PendingEnrichment(limit int) ([]string, error) {
 	return out, nil
 }
 
-func (s *fakeStore) SetEnrichment(fullName, _, _ string, _ []string) error {
+func (s *fakeStore) SetEnrichment(fullName string, _ *Repository) error {
 	s.stamped[fullName] = true
 	return nil
 }

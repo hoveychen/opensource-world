@@ -28,7 +28,15 @@ CREATE TABLE IF NOT EXISTS repos (
     eco_language     VARCHAR,
     eco_license      VARCHAR,
     eco_topics       VARCHAR,      -- JSON array as text
-    eco_dependencies VARCHAR       -- JSON
+    eco_dependencies VARCHAR,      -- JSON (reserved; not yet populated)
+    -- ecosyste.ms enrichment: community-health & bus-factor signals
+    eco_subscribers      INTEGER,  -- true watchers/subscribers (GitHub Search's "watchers" is actually the star count)
+    eco_total_commits    INTEGER,  -- commit_stats.total_commits
+    eco_total_committers INTEGER,  -- commit_stats.total_committers
+    eco_dds              DOUBLE,   -- commit_stats.dds: developer distribution score (lower = more bus-factor risk)
+    eco_tags_count       INTEGER,  -- number of git tags / releases
+    eco_files            VARCHAR,  -- JSON array of present governance-file kinds (readme, contributing, security, ...)
+    eco_scorecard_score  DOUBLE    -- OSSF Scorecard aggregate score (0-10); NULL when no scorecard
 );
 
 CREATE INDEX IF NOT EXISTS idx_repos_stars ON repos(stars);
