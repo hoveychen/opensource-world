@@ -76,15 +76,24 @@ function applyTheme(t: "light" | "dark") {
 }
 applyTheme(currentTheme());
 
-// buttons.js auto-renders any `.github-button` anchors present when it runs.
-// Our topbar is injected by JS after load, so we append the script only once
-// the anchor already exists in the DOM — otherwise the renderer never sees it.
-function loadGitHubButtons() {
-  if (document.getElementById("gh-buttons-js")) return;
+// Render the official github-buttons Star widget into `.star-badge`, forcing
+// its colour scheme to match the site's *current* theme (not the OS one), then
+// (re)run buttons.js. The widget reads data-color-scheme at render time and
+// replaces the anchor with an iframe, so to follow the manual theme toggle we
+// rebuild a fresh anchor and re-execute the script on every theme change.
+function renderStarBadge() {
+  const wrap = document.querySelector(".star-badge");
+  if (!wrap) return;
+  const theme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  wrap.innerHTML = `<a class="github-button" href="https://github.com/hoveychen/opensource-world"
+    data-color-scheme="${theme}" data-icon="octicon-star" data-size="large" data-show-count="true"
+    aria-label="Star hoveychen/opensource-world on GitHub">Star</a>`;
+  // Re-adding the script element re-executes it; its render pass scans for
+  // `a.github-button` and converts the fresh anchor with the new scheme.
+  document.getElementById("gh-buttons-js")?.remove();
   const s = document.createElement("script");
   s.id = "gh-buttons-js";
   s.async = true;
-  s.defer = true;
   s.src = "https://buttons.github.io/buttons.js";
   document.body.appendChild(s);
 }
@@ -96,6 +105,7 @@ function wireTheme() {
     const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
     applyTheme(next);
     localStorage.setItem("theme", next);
+    renderStarBadge();
   });
 }
 
@@ -106,12 +116,7 @@ function topbar(): string {
       <span class="mark">${MARK}</span>
       <span class="path"><a href="https://github.com/hoveychen" target="_blank" rel="noopener">hoveychen</a><span class="sep">/</span><a href="https://github.com/hoveychen/opensource-world" target="_blank" rel="noopener">opensource-world</a></span>
       <span class="badge">Public</span>
-      <span class="star-badge">
-        <a class="github-button" href="https://github.com/hoveychen/opensource-world"
-          data-color-scheme="no-preference: light; light: light; dark: dark;"
-          data-icon="octicon-star" data-size="large" data-show-count="true"
-          aria-label="Star hoveychen/opensource-world on GitHub">Star</a>
-      </span>
+      <span class="star-badge"></span>
       <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle light/dark">${MOON}${SUN}</button>
     </div>
   </div>`;
@@ -359,7 +364,7 @@ async function main() {
     ]);
     app.insertAdjacentHTML("beforebegin", topbar());
     wireTheme();
-    loadGitHubButtons();
+    renderStarBadge();
     app.innerHTML =
       hero(meta) +
       rankings(repos, langs) +
