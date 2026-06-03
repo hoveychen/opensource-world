@@ -93,6 +93,9 @@ function topbar(): string {
       <span class="mark">${MARK}</span>
       <span class="path"><a href="https://github.com/hoveychen" target="_blank" rel="noopener">hoveychen</a><span class="sep">/</span><a href="https://github.com/hoveychen/opensource-world" target="_blank" rel="noopener">opensource-world</a></span>
       <span class="badge">Public</span>
+      <a class="star-badge" href="https://github.com/hoveychen/opensource-world/stargazers" target="_blank" rel="noopener" aria-label="Star opensource-world on GitHub">
+        <img src="https://img.shields.io/github/stars/hoveychen/opensource-world?style=social" alt="GitHub stars" height="20" loading="lazy" />
+      </a>
       <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle light/dark">${MOON}${SUN}</button>
     </div>
   </div>`;
