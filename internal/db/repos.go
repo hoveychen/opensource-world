@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/hoveychen/opensource-world/internal/ecosystems"
 )
 
 // Repo is the normalized repository record stored in the repos table.
@@ -129,14 +131,46 @@ func (d *DB) CountPendingEnrichment() (int64, error) {
 }
 
 // SetEnrichment records ecosyste.ms metadata for a repo and stamps eco_synced_at.
-// Passing empty values (e.g. for a 404) still marks the repo as processed so it
-// is not retried forever.
-func (d *DB) SetEnrichment(fullName, language, license string, topics []string) error {
-	t, _ := json.Marshal(topics)
+// A nil repo (e.g. for a 404 — not present on ecosyste.ms) still marks the repo
+// as processed so it is not retried forever, writing NULL for every eco_* value.
+// When fields are absent (a repo with no commit_stats or scorecard), the
+// corresponding columns are left NULL rather than zeroed.
+func (d *DB) SetEnrichment(fullName string, r *ecosystems.Repository) error {
+	// Defaults for the nil-repo (404) case: every enrichment column NULL.
+	var (
+		lang, lic               any = nil, nil
+		topics                  any = "null"
+		files                   any = "null"
+		subs, commits, comtrs   any = nil, nil, nil
+		tags, dds, scorecardVal any = nil, nil, nil
+	)
+	if r != nil {
+		t, _ := json.Marshal(r.Topics)
+		topics = string(t)
+		f, _ := json.Marshal(r.PresentFiles())
+		files = string(f)
+		lang = nullStr(r.Language)
+		lic = nullStr(r.License)
+		subs = int64(r.Subscribers)
+		tags = int64(r.TagsCount)
+		if r.CommitStats != nil {
+			commits = int64(r.CommitStats.TotalCommits)
+			comtrs = int64(r.CommitStats.TotalCommitters)
+			dds = r.CommitStats.DDS
+		}
+		if score, ok := r.ScorecardScore(); ok {
+			scorecardVal = score
+		}
+	}
 	_, err := d.Exec(`UPDATE repos SET
-		eco_language=?, eco_license=?, eco_topics=?, eco_synced_at=?
+		eco_language=?, eco_license=?, eco_topics=?,
+		eco_subscribers=?, eco_total_commits=?, eco_total_committers=?,
+		eco_dds=?, eco_tags_count=?, eco_files=?, eco_scorecard_score=?,
+		eco_synced_at=?
 		WHERE full_name=?`,
-		nullStr(language), nullStr(license), string(t), time.Now().UTC(), fullName)
+		lang, lic, topics,
+		subs, commits, comtrs, dds, tags, files, scorecardVal,
+		time.Now().UTC(), fullName)
 	return err
 }
 
