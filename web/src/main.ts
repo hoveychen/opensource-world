@@ -22,6 +22,15 @@ type LanguageCount = { language: string; repos: number; stars: number };
 type CoverageBand = { lo: number; hi: number; label: string };
 type CoverageCell = { repos: number; cov: number };
 type Coverage = { bands: CoverageBand[]; months: string[]; cells: CoverageCell[][] };
+type DDSBucket = { lo: number; hi: number; repos: number };
+type FileAdoption = { kind: string; present: number; rate: number };
+type Health = {
+  enriched_stats: number;
+  dds_buckets: DDSBucket[];
+  files: FileAdoption[];
+  scorecard_count: number;
+  scorecard_avg: number;
+};
 
 const BASE = import.meta.env.BASE_URL;
 const dataURL = (name: string) => `${BASE}data/${name}`;
@@ -409,6 +418,85 @@ function coverageView(cov: Coverage): string {
   );
 }
 
+// ---------- project health (bus-factor, governance files, scorecard) ----------
+// DDS = developer distribution score (ecosyste.ms commit_stats): low means a
+// repo's commits concentrate in few hands (bus-factor risk), high means they
+// spread across many contributors. Red→green ramp encodes risk→healthy.
+const DDS_COLORS = ["#f85149", "#db6d28", "#d29922", "#57ab5a", "#3fb950"];
+
+function prettyKind(kind: string): string {
+  const s = kind.replace(/_/g, " ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function healthView(h: Health): string {
+  if (!h || h.enriched_stats <= 0) {
+    return box(
+      "Health",
+      "Project health",
+      "Bus-factor, governance-file and security metrics from ecosyste.ms enrichment.",
+      `<div class="empty">No enrichment data yet — run an enrich pass to populate the bus-factor, governance-file and OSSF scorecard metrics.</div>`
+    );
+  }
+
+  // Bus factor: DDS histogram, coloured risk→healthy.
+  const maxDDS = Math.max(1, ...h.dds_buckets.map((b) => b.repos));
+  const ddsRows = h.dds_buckets
+    .map((b, i) => {
+      const w = ((b.repos / maxDDS) * 100).toFixed(1);
+      const label = `${b.lo.toFixed(1)}–${b.hi.toFixed(1)}`;
+      return `
+      <div class="lang-row" style="--w:${w}%; --i:${i}">
+        <span class="lang-name">${label}</span>
+        <span class="lang-bar"><span class="lang-fill" style="background:${DDS_COLORS[i] ?? "var(--success)"}"></span></span>
+        <span class="lang-val"><b>${compact(b.repos)}</b> repos</span>
+      </div>`;
+    })
+    .join("");
+
+  // Community files: adoption rate per governance file, most-common first.
+  const files = h.files.slice(0, 10);
+  const fileRows = files
+    .map((f, i) => {
+      const w = (f.rate * 100).toFixed(1);
+      return `
+      <div class="lang-row" style="--w:${w}%; --i:${i}">
+        <span class="lang-name">${esc(prettyKind(f.kind))}</span>
+        <span class="lang-bar"><span class="lang-fill"></span></span>
+        <span class="lang-val"><b>${(f.rate * 100).toFixed(0)}%</b> · ${compact(f.present)}</span>
+      </div>`;
+    })
+    .join("");
+
+  const scorecard =
+    h.scorecard_count > 0
+      ? `<div class="health-scorecard">
+           <span class="hs-label">OSSF Scorecard</span>
+           <span class="hs-score"><b>${h.scorecard_avg.toFixed(1)}</b> / 10</span>
+           <span class="hs-sub">avg across ${grouped(h.scorecard_count)} repos</span>
+         </div>`
+      : "";
+
+  const body = `
+    <div class="health">
+      <div class="health-block">
+        <div class="health-head"><b>Bus factor</b><span>commit concentration (DDS) — left bands are few-hands / higher risk, right bands spread across many contributors</span></div>
+        <div class="lang-chart">${ddsRows}</div>
+      </div>
+      <div class="health-block">
+        <div class="health-head"><b>Community files</b><span>share of enriched repos carrying each governance file</span></div>
+        <div class="lang-chart">${fileRows}</div>
+      </div>
+      ${scorecard}
+    </div>`;
+  return box(
+    "Health",
+    "Project health",
+    `Bus-factor, governance-file adoption and OSSF security scores, from ${grouped(h.enriched_stats)} ecosyste.ms-enriched repositories.`,
+    body
+  );
+}
+
 function footer(meta: Meta): string {
   return `
   <footer class="foot">
@@ -437,13 +525,14 @@ async function main() {
   const app = document.getElementById("app")!;
   app.innerHTML = `<div class="loading">Loading survey…</div>`;
   try {
-    const [meta, repos, yr, topics, langs, cov] = await Promise.all([
+    const [meta, repos, yr, topics, langs, cov, health] = await Promise.all([
       getJSON<Meta>("meta.json"),
       getJSON<TopRepo[]>("top_repos.json"),
       getJSON<YearBucket[]>("trends.json"),
       getJSON<TopicCount[]>("topics.json"),
       getJSON<LanguageCount[]>("languages.json"),
       getJSON<Coverage>("coverage.json"),
+      getJSON<Health>("health.json"),
     ]);
     app.insertAdjacentHTML("beforebegin", topbar());
     wireTheme();
@@ -454,6 +543,7 @@ async function main() {
       languages(langs) +
       trends(yr) +
       coverageView(cov) +
+      healthView(health) +
       topicsView(topics) +
       footer(meta);
     wireRankings();

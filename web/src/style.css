@@ -413,6 +413,53 @@ a:hover {
   font-weight: 600;
 }
 
+/* ---------- project health ---------- */
+.health {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+  padding-top: 0.4rem;
+}
+.health-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-bottom: 0.55rem;
+}
+.health-head b {
+  font-size: 0.95rem;
+}
+.health-head span {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+.health-scorecard {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border-muted);
+  border-radius: 8px;
+  background: var(--accent-subtle);
+}
+.hs-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.hs-score {
+  font-family: var(--mono);
+  font-size: 1.05rem;
+  color: var(--accent);
+}
+.hs-score b {
+  font-size: 1.4rem;
+}
+.hs-sub {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+
 /* ---------- trends chart ---------- */
 .legend {
   display: flex;
