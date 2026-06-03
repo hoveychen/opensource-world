@@ -13,17 +13,18 @@ on:
         default: "10"
       crawl_minutes:
         description: "Minutes to run enumerate + enrich concurrently"
-        default: "300"
+        default: "50"
       mailto:
         description: "Contact email for the ecosyste.ms polite pool"
         default: "yuheng_chen@outlook.com"
   schedule:
     # Hourly. Rate-limit quotas (ecosyste.ms polite ~15k/hr, GitHub Search) reset
-    # every hour, so we want a crawl running every hour. The concurrency guard
-    # below means an hourly trigger that lands while a long job is still running
-    # just queues — when the running job ends, the queued one starts immediately,
-    # giving near-continuous long runs (DB transferred once per long run, not
-    # once per hour) while still using each hour's quota.
+    # every hour, so each run crawls for one quota window then saves the DB. The
+    # job runs enumerate + enrich concurrently for ~50 min (under the 60-min job
+    # timeout, leaving room for restore/build/save), so the DB is persisted once
+    # per hour rather than once per multi-hour run — a crash or preemption now
+    # loses at most one hour of progress. The concurrency guard keeps runs from
+    # overlapping; if one overruns, the next hourly trigger just queues.
     - cron: "0 * * * *"
 
 # Need write access to publish the DB as a release asset.
@@ -38,14 +39,14 @@ concurrency:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 350 # under the 360-minute hard cap
+    timeout-minutes: 60 # one quota window per run; crawl_minutes leaves overhead
     env:
       RELEASE_TAG: db
       ASSET: repos.duckdb.gz
       DB_PATH: data/repos.duckdb
       # Inputs are empty on a scheduled run; fall back to sensible defaults.
       MIN_STARS: ${{ github.event.inputs.min_stars || '10' }}
-      CRAWL_MINUTES: ${{ github.event.inputs.crawl_minutes || '300' }}
+      CRAWL_MINUTES: ${{ github.event.inputs.crawl_minutes || '50' }}
       MAILTO: ${{ github.event.inputs.mailto || 'yuheng_chen@outlook.com' }}
     steps:
       - uses: actions/checkout@v4
