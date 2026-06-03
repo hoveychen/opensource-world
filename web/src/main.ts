@@ -157,9 +157,13 @@ function hero(meta: Meta): string {
   </header>`;
 }
 
+function slug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
 function box(num: string, title: string, blurb: string, body: string): string {
   return `
-  <section class="section">
+  <section class="section" id="${slug(num)}">
     <div class="box-header">
       <div class="eyebrow">${num}</div>
       <h2>${title}</h2>
@@ -167,6 +171,39 @@ function box(num: string, title: string, blurb: string, body: string): string {
     </div>
     <div class="box-body">${body}</div>
   </section>`;
+}
+
+// Sticky anchor nav across the six sections. The labels match each box()'s
+// `num` eyebrow, so the hrefs line up with the section ids slug() produces.
+const NAV_SECTIONS = ["Ranking", "Languages", "Trends", "Coverage", "Health", "Topics"];
+
+function sectionNav(): string {
+  const links = NAV_SECTIONS.map(
+    (n) => `<a class="nav-link" href="#${slug(n)}" data-nav="${slug(n)}">${n}</a>`
+  ).join("");
+  return `<nav class="section-nav"><div class="section-nav-inner">${links}</div></nav>`;
+}
+
+// Highlight the nav link for whichever section is currently centred in the
+// viewport (a lightweight scrollspy).
+function wireNav() {
+  const links = new Map<string, HTMLElement>();
+  document.querySelectorAll<HTMLElement>(".nav-link").forEach((a) => {
+    if (a.dataset.nav) links.set(a.dataset.nav, a);
+  });
+  if (!links.size) return;
+  const obs = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting) {
+          links.forEach((l) => l.classList.remove("active"));
+          links.get((e.target as HTMLElement).id)?.classList.add("active");
+        }
+      });
+    },
+    { rootMargin: "-40% 0px -55% 0px", threshold: 0 }
+  );
+  document.querySelectorAll(".section").forEach((s) => obs.observe(s));
 }
 
 // ---------- interactive star ranking ----------
@@ -539,6 +576,7 @@ async function main() {
     renderStarBadge();
     app.innerHTML =
       hero(meta) +
+      sectionNav() +
       rankings(repos, langs) +
       languages(langs) +
       trends(yr) +
@@ -547,6 +585,7 @@ async function main() {
       topicsView(topics) +
       footer(meta);
     wireRankings();
+    wireNav();
     reveal();
   } catch (err) {
     app.innerHTML = `<div class="loading">Could not load the survey data.<br/>${esc(String(err))}</div>`;
