@@ -553,7 +553,12 @@ function reveal() {
         }
       });
     },
-    { threshold: 0.1 }
+    // threshold 0 = reveal as soon as any pixel enters the viewport. A fixed
+    // ratio like 0.1 silently breaks for sections taller than the viewport:
+    // the Ranking section (40 rows) is ~4700px tall, so on first paint only
+    // ~8% of it is on-screen — below 0.1 — and it stayed at opacity:0 until a
+    // scroll pushed it past 10%, leaving the page blank on load.
+    { threshold: 0 }
   );
   document.querySelectorAll(".section").forEach((s) => obs.observe(s));
 }
