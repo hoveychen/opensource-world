@@ -7,6 +7,7 @@
 //	stats        print a summary of the local database
 //	enumerate    (P2) enumerate repos via the GitHub Search API
 //	enrich       (P3) enrich stored repos via ecosyste.ms
+//	crawl        run enumerate + enrich concurrently (saturates both quotas)
 package main
 
 import (
@@ -24,6 +25,7 @@ import (
 	"github.com/hoveychen/opensource-world/internal/ecosystems"
 	"github.com/hoveychen/opensource-world/internal/ghtoken"
 	"github.com/hoveychen/opensource-world/internal/github"
+	"golang.org/x/sync/errgroup"
 )
 
 const defaultDBPath = "data/repos.duckdb"
@@ -44,6 +46,7 @@ Commands:
   stats         print a summary of the local database
   enumerate     enumerate repos via GitHub Search (P2)
   enrich        enrich stored repos via ecosyste.ms
+  crawl         run enumerate + enrich concurrently (saturates both quotas)
   aggregate     write JSON summaries for the visualization site
 
 Env:
@@ -75,6 +78,8 @@ func main() {
 		err = cmdEnumerate(os.Args[2:])
 	case "enrich":
 		err = cmdEnrich(os.Args[2:])
+	case "crawl":
+		err = cmdCrawl(os.Args[2:])
 	case "aggregate":
 		err = cmdAggregate(os.Args[2:])
 	case "-h", "--help", "help":
@@ -271,5 +276,131 @@ func cmdEnrich(args []string) error {
 		return nil
 	}
 	log.Printf("done. enriched %d repos this run (skipped %d after errors)", stamped, failed)
+	return nil
+}
+
+// cmdCrawl runs enumerate and enrich concurrently in one process so both API
+// quotas are consumed at the same time instead of one sitting idle while the
+// other runs. The two phases hit independent, hourly-resetting quotas (GitHub
+// Search ~30/min, ecosyste.ms polite ~15k/hr); running them serially wastes
+// roughly half of each API's hourly budget. They share one *db.DB whose pool is
+// capped at one connection, so all writes serialize safely through that single
+// connection — enumerate and enrich touch disjoint columns anyway (core fields
+// vs eco_*). The network rate limits dominate, so serialized DB writes are free.
+//
+// Splitting into two parallel CI jobs is NOT viable: the DuckDB file is single
+// shared state pulled from / pushed to a Release asset, so two jobs would
+// clobber each other's upload. Concurrency must live inside one process.
+func cmdCrawl(args []string) error {
+	fs := flag.NewFlagSet("crawl", flag.ExitOnError)
+	minStars := fs.Int("min-stars", 10, "lower star bound (inclusive)")
+	maxStars := fs.Int("max-stars", 0, "upper star bound (0 = auto-probe current max)")
+	from := fs.String("from", "", "earliest created date YYYY-MM-DD (default 2007-01-01)")
+	to := fs.String("to", "", "latest created date YYYY-MM-DD (default today)")
+	mailto := fs.String("mailto", defaultMailto, "contact email for the ecosyste.ms polite pool (~15k/hr); empty = anonymous ~5k/hr")
+	maxRuntime := fs.Duration("max-runtime", 0, "stop cleanly after this duration, saving progress (0 = no limit); e.g. 5h")
+	pollInterval := fs.Duration("enrich-poll", 15*time.Second, "while enumerate is still running, re-check for newly enumerated repos this often")
+	fs.Parse(args)
+	if env := os.Getenv("ECOSYSTEMS_MAILTO"); env != "" {
+		*mailto = env
+	}
+
+	opts := github.EnumerateOptions{MinStars: *minStars, MaxStars: *maxStars}
+	var err error
+	if *from != "" {
+		if opts.From, err = time.Parse("2006-01-02", *from); err != nil {
+			return fmt.Errorf("bad -from: %w", err)
+		}
+	}
+	if *to != "" {
+		if opts.To, err = time.Parse("2006-01-02", *to); err != nil {
+			return fmt.Errorf("bad -to: %w", err)
+		}
+	}
+
+	tok, err := ghtoken.Resolve()
+	if err != nil {
+		return err
+	}
+	if err := ensureDataDir(dbPath()); err != nil {
+		return err
+	}
+	database, err := db.Open(dbPath())
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := withMaxRuntime(ctx, *maxRuntime)
+	defer cancel()
+
+	ghClient := github.NewClient(tok)
+	ecoClient := ecosystems.NewClient(*mailto)
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	// enumDone signals the enrich loop that no new repos will appear, so once
+	// the pending queue drains it can stop instead of polling until max-runtime.
+	enumDone := make(chan struct{})
+
+	g.Go(func() error {
+		defer close(enumDone)
+		log.Printf("[enumerate] stars>=%d (non-fork) into %s", *minStars, dbPath())
+		if err := ghClient.Enumerate(gctx, database, opts); err != nil {
+			if gctx.Err() != nil {
+				log.Printf("[enumerate] interrupted; progress saved")
+				return nil
+			}
+			return err
+		}
+		log.Printf("[enumerate] complete")
+		return nil
+	})
+
+	g.Go(func() error {
+		var total int
+		for {
+			// Enrich drains all currently-pending repos, then returns. New repos
+			// may still be arriving from enumerate, so we re-enter in a loop.
+			stamped, _, err := ecosystems.Enrich(gctx, database, ecoClient, 0)
+			total += stamped
+			if err != nil {
+				return err
+			}
+			if gctx.Err() != nil {
+				log.Printf("[enrich] interrupted after %d enriched", total)
+				return nil
+			}
+			select {
+			case <-enumDone:
+				// Enumerate finished. If nothing is left pending, we're done;
+				// otherwise loop once more to drain the tail.
+				names, perr := database.PendingEnrichment(1)
+				if perr != nil {
+					return perr
+				}
+				if len(names) == 0 {
+					log.Printf("[enrich] complete; %d enriched this run", total)
+					return nil
+				}
+			default:
+				// Enumerate still running; wait for new rows before re-checking.
+			}
+			select {
+			case <-gctx.Done():
+				log.Printf("[enrich] stopped after %d enriched", total)
+				return nil
+			case <-time.After(*pollInterval):
+			}
+		}
+	})
+
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	s, _ := database.Stats()
+	log.Printf("crawl done. repos=%d enriched=%d windows=%d", s.TotalRepos, s.Enriched, s.WindowsDone)
 	return nil
 }
