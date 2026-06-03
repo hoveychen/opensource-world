@@ -99,3 +99,28 @@ func TestRepository_HandlesMissingNested(t *testing.T) {
 		t.Errorf("ScorecardScore ok = true (score %v), want false", score)
 	}
 }
+
+// ecosyste.ms serializes commit_stats.dds as a JSON string for some repos
+// (e.g. fatedier/frp returns "0.2458...") and as a number for others
+// (facebook/react returns 0.9065). Both must parse. This reproduces the
+// "cannot unmarshal string into float64" error seen during a real enrich run.
+func TestRepository_ParsesStringDDS(t *testing.T) {
+	cases := map[string]string{
+		"string": `{"commit_stats":{"total_commits":842,"dds":"0.24584323040380052"}}`,
+		"number": `{"commit_stats":{"total_commits":842,"dds":0.24584323040380052}}`,
+	}
+	for name, js := range cases {
+		t.Run(name, func(t *testing.T) {
+			var r Repository
+			if err := json.Unmarshal([]byte(js), &r); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if r.CommitStats == nil {
+				t.Fatal("CommitStats = nil, want parsed")
+			}
+			if got := float64(r.CommitStats.DDS); got < 0.245 || got > 0.246 {
+				t.Errorf("DDS = %v, want ~0.2458", got)
+			}
+		})
+	}
+}

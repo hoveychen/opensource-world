@@ -30,7 +30,28 @@ func Open(path string) (*DB, error) {
 		sqlDB.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	for _, stmt := range migrations {
+		if _, err := sqlDB.Exec(stmt); err != nil {
+			sqlDB.Close()
+			return nil, fmt.Errorf("migrate (%s): %w", stmt, err)
+		}
+	}
 	return &DB{sqlDB}, nil
+}
+
+// migrations bring a pre-existing repos table up to the current schema.
+// schema.sql's CREATE TABLE IF NOT EXISTS only builds a fresh table, so a
+// database created by an earlier build is missing any column added since. Each
+// ALTER ... ADD COLUMN IF NOT EXISTS is a no-op when the column already exists,
+// making this safe to run on every Open (fresh DBs included).
+var migrations = []string{
+	`ALTER TABLE repos ADD COLUMN IF NOT EXISTS eco_subscribers INTEGER`,
+	`ALTER TABLE repos ADD COLUMN IF NOT EXISTS eco_total_commits INTEGER`,
+	`ALTER TABLE repos ADD COLUMN IF NOT EXISTS eco_total_committers INTEGER`,
+	`ALTER TABLE repos ADD COLUMN IF NOT EXISTS eco_dds DOUBLE`,
+	`ALTER TABLE repos ADD COLUMN IF NOT EXISTS eco_tags_count INTEGER`,
+	`ALTER TABLE repos ADD COLUMN IF NOT EXISTS eco_files VARCHAR`,
+	`ALTER TABLE repos ADD COLUMN IF NOT EXISTS eco_scorecard_score DOUBLE`,
 }
 
 // Stats summarizes the contents of the database.
