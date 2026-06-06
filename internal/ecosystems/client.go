@@ -13,7 +13,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -32,7 +35,10 @@ const (
 	defaultMaxAttempts = 4
 )
 
-// Client talks to the ecosyste.ms Repos API, one request at a time.
+// Client talks to the ecosyste.ms Repos API. It is safe for concurrent use: the
+// limiter paces the aggregate request rate while letting many requests be
+// in-flight at once, so one repo stuck in a 520 backoff does not stall the rest
+// (and request latency stops capping throughput below the rate limit).
 //
 // Passing a non-empty mailto joins the "polite pool": ecosyste.ms raises the
 // rate limit from ~5000 to ~15000 req/hour. Verified mechanism (2026-06): only
@@ -41,16 +47,16 @@ const (
 type Client struct {
 	http        *http.Client
 	mailto      string
-	interval    time.Duration
+	limiter     *rate.Limiter
 	backoffBase time.Duration
 	maxAttempts int
-	lastCall    time.Time
 
-	loggedTier bool // log the served rate-limit tier once, for confirmation
+	tierOnce sync.Once // log the served rate-limit tier once, for confirmation
 
-	// Retry instrumentation, mutated only from the single calling goroutine.
-	// serverErrors counts EVERY 5xx response, including ones that later
-	// recovered on retry — the volume the logs alone could not reveal.
+	// Retry instrumentation. Mutated from many worker goroutines, so all access
+	// goes through mu. serverErrors counts EVERY 5xx response, including ones
+	// that later recovered on retry — the volume the logs alone could not reveal.
+	mu    sync.Mutex
 	stats RetryStats
 }
 
@@ -74,15 +80,27 @@ func NewClient(mailto string) *Client {
 	return &Client{
 		http:        &http.Client{Timeout: 30 * time.Second},
 		mailto:      mailto,
-		interval:    interval,
+		limiter:     rate.NewLimiter(rate.Every(interval), 1),
 		backoffBase: defaultBackoffBase,
 		maxAttempts: defaultMaxAttempts,
 	}
 }
 
-// RetryStats returns a snapshot of retry counters. Safe to call after the run's
-// single calling goroutine has finished.
-func (c *Client) RetryStats() RetryStats { return c.stats }
+// RetryStats returns a snapshot of retry counters. Safe to call concurrently.
+func (c *Client) RetryStats() RetryStats {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.stats
+}
+
+func (c *Client) addServerError() { c.mu.Lock(); c.stats.ServerErrors++; c.mu.Unlock() }
+func (c *Client) addRateLimit()   { c.mu.Lock(); c.stats.RateLimitHits++; c.mu.Unlock() }
+func (c *Client) addRetry(d time.Duration) {
+	c.mu.Lock()
+	c.stats.Retries++
+	c.stats.RetryWait += d
+	c.mu.Unlock()
+}
 
 // Repository is the subset of the ecosyste.ms repository object we store.
 //
@@ -185,7 +203,11 @@ func (c *Client) GetRepository(ctx context.Context, fullName string) (*Repositor
 	var lastErr error
 	backoff := c.backoffBase
 	for attempt := 0; attempt < c.maxAttempts; attempt++ {
-		c.throttle()
+		// Pace the aggregate request rate. Wait blocks only this goroutine until
+		// a token is free, so other workers keep the pipeline full meanwhile.
+		if err := c.limiter.Wait(ctx); err != nil {
+			return nil, err
+		}
 		repo, retryAfter, retryable, err := c.do(ctx, endpoint, fullName)
 		if err == nil {
 			return repo, nil
@@ -205,8 +227,7 @@ func (c *Client) GetRepository(ctx context.Context, fullName string) (*Repositor
 			wait = backoff
 			backoff *= 2
 		}
-		c.stats.Retries++
-		c.stats.RetryWait += wait
+		c.addRetry(wait)
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -214,15 +235,6 @@ func (c *Client) GetRepository(ctx context.Context, fullName string) (*Repositor
 		}
 	}
 	return nil, fmt.Errorf("get %q: %w", fullName, lastErr)
-}
-
-func (c *Client) throttle() {
-	if !c.lastCall.IsZero() {
-		if wait := c.interval - time.Since(c.lastCall); wait > 0 {
-			time.Sleep(wait)
-		}
-	}
-	c.lastCall = time.Now()
 }
 
 // do performs one request. retryable reports whether the caller should retry;
@@ -244,11 +256,10 @@ func (c *Client) do(ctx context.Context, endpoint, fullName string) (repo *Repos
 
 	switch {
 	case resp.StatusCode == http.StatusOK:
-		if !c.loggedTier {
-			c.loggedTier = true
+		c.tierOnce.Do(func() {
 			log.Printf("ecosyste.ms rate-limit tier=%s limit=%s/hr",
 				resp.Header.Get("X-RateLimit-Tier"), resp.Header.Get("X-RateLimit-Limit"))
-		}
+		})
 		var r Repository
 		if err := json.Unmarshal(body, &r); err != nil {
 			return nil, 0, false, fmt.Errorf("decode %q: %w", fullName, err)
@@ -257,12 +268,12 @@ func (c *Client) do(ctx context.Context, endpoint, fullName string) (repo *Repos
 	case resp.StatusCode == http.StatusNotFound:
 		return nil, 0, false, &NotFound{FullName: fullName}
 	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusForbidden:
-		c.stats.RateLimitHits++
+		c.addRateLimit()
 		return nil, rateLimitWait(resp), true, fmt.Errorf("rate limited (HTTP %d)", resp.StatusCode)
 	case resp.StatusCode >= 500:
 		// Counts every 5xx, including ones that recover on a later attempt —
 		// that volume is otherwise invisible (only final failures are logged).
-		c.stats.ServerErrors++
+		c.addServerError()
 		return nil, 0, true, fmt.Errorf("server error HTTP %d", resp.StatusCode)
 	default:
 		return nil, 0, false, fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))

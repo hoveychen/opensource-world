@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 // rtFunc adapts a function to http.RoundTripper.
@@ -29,7 +31,7 @@ func resp(status int, body string) *http.Response {
 func testClient(statuses ...int) *Client {
 	i := 0
 	c := NewClient("test@example.com")
-	c.interval = 0
+	c.limiter = rate.NewLimiter(rate.Inf, 1) // no pacing in tests
 	c.backoffBase = time.Microsecond
 	c.http = &http.Client{Transport: rtFunc(func(*http.Request) (*http.Response, error) {
 		s := statuses[len(statuses)-1]
