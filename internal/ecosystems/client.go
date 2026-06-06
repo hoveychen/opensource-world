@@ -23,6 +23,13 @@ const (
 	// Polite tier (joined by passing a mailto) is ~15000 req/hour; ~0.26s
 	// spacing (~13.8k/hr) stays comfortably under it.
 	politeInterval = 260 * time.Millisecond
+	// Retry budget for transient failures. ecosyste.ms sits behind Cloudflare
+	// and intermittently 520s (origin overload), so we retry — but with a short
+	// exponential backoff (1s, 2s, 4s), not a flat 5s × 5. A repo that keeps
+	// failing now costs ~7s worst case instead of ~25s, and one that recovers on
+	// the first retry costs ~1s instead of ~5s. 429/403 still honor Retry-After.
+	defaultBackoffBase = 1 * time.Second
+	defaultMaxAttempts = 4
 )
 
 // Client talks to the ecosyste.ms Repos API, one request at a time.
@@ -32,12 +39,29 @@ const (
 // the `mailto=` query parameter engages it — putting mailto in the User-Agent
 // did NOT (the response stayed tier=anonymous, limit=5000).
 type Client struct {
-	http     *http.Client
-	mailto   string
-	interval time.Duration
-	lastCall time.Time
+	http        *http.Client
+	mailto      string
+	interval    time.Duration
+	backoffBase time.Duration
+	maxAttempts int
+	lastCall    time.Time
 
 	loggedTier bool // log the served rate-limit tier once, for confirmation
+
+	// Retry instrumentation, mutated only from the single calling goroutine.
+	// serverErrors counts EVERY 5xx response, including ones that later
+	// recovered on retry — the volume the logs alone could not reveal.
+	stats RetryStats
+}
+
+// RetryStats is a snapshot of how much retrying the client did — surfaced at the
+// end of a run so the 520 volume (otherwise invisible, since recovered retries
+// are not logged) and the wall-clock it cost are measurable.
+type RetryStats struct {
+	ServerErrors  int           // 5xx responses seen (incl. recovered-on-retry)
+	RateLimitHits int           // 429/403 responses seen
+	Retries       int           // number of backoff sleeps performed
+	RetryWait     time.Duration // cumulative time slept waiting to retry
 }
 
 // NewClient builds an ecosyste.ms client. If mailto is non-empty it is sent as
@@ -48,11 +72,17 @@ func NewClient(mailto string) *Client {
 		interval = politeInterval
 	}
 	return &Client{
-		http:     &http.Client{Timeout: 30 * time.Second},
-		mailto:   mailto,
-		interval: interval,
+		http:        &http.Client{Timeout: 30 * time.Second},
+		mailto:      mailto,
+		interval:    interval,
+		backoffBase: defaultBackoffBase,
+		maxAttempts: defaultMaxAttempts,
 	}
 }
+
+// RetryStats returns a snapshot of retry counters. Safe to call after the run's
+// single calling goroutine has finished.
+func (c *Client) RetryStats() RetryStats { return c.stats }
 
 // Repository is the subset of the ecosyste.ms repository object we store.
 //
@@ -153,21 +183,34 @@ func (c *Client) GetRepository(ctx context.Context, fullName string) (*Repositor
 	}
 
 	var lastErr error
-	for attempt := 0; attempt < 5; attempt++ {
+	backoff := c.backoffBase
+	for attempt := 0; attempt < c.maxAttempts; attempt++ {
 		c.throttle()
-		repo, retry, err := c.do(ctx, endpoint, fullName)
+		repo, retryAfter, retryable, err := c.do(ctx, endpoint, fullName)
 		if err == nil {
 			return repo, nil
 		}
 		lastErr = err
-		var nf *NotFound
-		if asNotFound(err, &nf) || retry <= 0 {
+		if !retryable {
 			return nil, err
 		}
+		// No point sleeping after the final attempt — we are about to give up.
+		if attempt == c.maxAttempts-1 {
+			break
+		}
+		// 429/403 dictate their own wait (Retry-After / reset); transient 5xx
+		// and network blips use exponential backoff.
+		wait := retryAfter
+		if wait <= 0 {
+			wait = backoff
+			backoff *= 2
+		}
+		c.stats.Retries++
+		c.stats.RetryWait += wait
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(retry):
+		case <-time.After(wait):
 		}
 	}
 	return nil, fmt.Errorf("get %q: %w", fullName, lastErr)
@@ -182,17 +225,19 @@ func (c *Client) throttle() {
 	c.lastCall = time.Now()
 }
 
-func (c *Client) do(ctx context.Context, endpoint, fullName string) (*Repository, time.Duration, error) {
+// do performs one request. retryable reports whether the caller should retry;
+// retryAfter is a caller-honored wait for rate limits (0 means "use backoff").
+func (c *Client) do(ctx context.Context, endpoint, fullName string) (repo *Repository, retryAfter time.Duration, retryable bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, -1, err
+		return nil, 0, false, err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "opensource-world-crawler")
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, 5 * time.Second, err
+		return nil, 0, true, err // network blip: retry with backoff
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -206,17 +251,21 @@ func (c *Client) do(ctx context.Context, endpoint, fullName string) (*Repository
 		}
 		var r Repository
 		if err := json.Unmarshal(body, &r); err != nil {
-			return nil, -1, fmt.Errorf("decode %q: %w", fullName, err)
+			return nil, 0, false, fmt.Errorf("decode %q: %w", fullName, err)
 		}
-		return &r, 0, nil
+		return &r, 0, false, nil
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, -1, &NotFound{FullName: fullName}
+		return nil, 0, false, &NotFound{FullName: fullName}
 	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusForbidden:
-		return nil, rateLimitWait(resp), fmt.Errorf("rate limited (HTTP %d)", resp.StatusCode)
+		c.stats.RateLimitHits++
+		return nil, rateLimitWait(resp), true, fmt.Errorf("rate limited (HTTP %d)", resp.StatusCode)
 	case resp.StatusCode >= 500:
-		return nil, 5 * time.Second, fmt.Errorf("server error HTTP %d", resp.StatusCode)
+		// Counts every 5xx, including ones that recover on a later attempt —
+		// that volume is otherwise invisible (only final failures are logged).
+		c.stats.ServerErrors++
+		return nil, 0, true, fmt.Errorf("server error HTTP %d", resp.StatusCode)
 	default:
-		return nil, -1, fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))
+		return nil, 0, false, fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
 }
 
@@ -234,14 +283,6 @@ func rateLimitWait(resp *http.Response) time.Duration {
 		}
 	}
 	return 30 * time.Second
-}
-
-func asNotFound(err error, target **NotFound) bool {
-	nf, ok := err.(*NotFound)
-	if ok {
-		*target = nf
-	}
-	return ok
 }
 
 func truncate(s string, n int) string {
