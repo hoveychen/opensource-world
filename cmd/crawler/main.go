@@ -402,5 +402,8 @@ func cmdCrawl(args []string) error {
 	}
 	s, _ := database.Stats()
 	log.Printf("crawl done. repos=%d enriched=%d windows=%d", s.TotalRepos, s.Enriched, s.WindowsDone)
+	rs := ecoClient.RetryStats()
+	log.Printf("[enrich] ecosyste.ms retries: server5xx=%d ratelimited=%d retrySleeps=%d totalRetryWait=%s",
+		rs.ServerErrors, rs.RateLimitHits, rs.Retries, rs.RetryWait.Round(time.Second))
 	return nil
 }
