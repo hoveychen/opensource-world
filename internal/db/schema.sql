@@ -53,5 +53,10 @@ CREATE TABLE IF NOT EXISTS crawl_windows (
     total_count INTEGER,           -- total_count GitHub reported for the window
     fetched     INTEGER,           -- rows we actually stored from it
     done_at     TIMESTAMP,
+    -- TRUE for an interior bisection node whose whole subtree is drained: a
+    -- resume short-circuits the subtree with one lookup instead of re-counting
+    -- every split. Interior windows OVERLAP their children, so coverage and the
+    -- windows-done stat must count leaf windows only (interior IS NOT TRUE).
+    interior    BOOLEAN DEFAULT FALSE,
     PRIMARY KEY (star_min, star_max, date_min, date_max)
 );

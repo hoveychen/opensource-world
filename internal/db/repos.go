@@ -94,12 +94,30 @@ func (d *DB) IsWindowDone(starLo, starHi int, dateLo, dateHi time.Time) (bool, e
 // MarkWindowDone records a fully-drained leaf window for resumability.
 func (d *DB) MarkWindowDone(starLo, starHi int, dateLo, dateHi time.Time, totalCount, fetched int) error {
 	_, err := d.Exec(`INSERT INTO crawl_windows
-		(star_min, star_max, date_min, date_max, total_count, fetched, done_at)
-		VALUES (?,?,?,?,?,?,?)
+		(star_min, star_max, date_min, date_max, total_count, fetched, done_at, interior)
+		VALUES (?,?,?,?,?,?,?,FALSE)
 		ON CONFLICT (star_min, star_max, date_min, date_max) DO UPDATE SET
-			total_count=excluded.total_count, fetched=excluded.fetched, done_at=excluded.done_at`,
+			total_count=excluded.total_count, fetched=excluded.fetched,
+			done_at=excluded.done_at, interior=FALSE`,
 		starLo, starHi, dateLo.Format("2006-01-02"), dateHi.Format("2006-01-02"),
 		totalCount, fetched, time.Now().UTC())
+	return err
+}
+
+// MarkInteriorDone records a fully-drained interior bisection node — a window
+// that was split rather than paged, but whose entire subtree is now done. A
+// later resume hits IsWindowDone for this node and skips the whole subtree
+// without re-issuing a count per child. Interior windows overlap their children,
+// so they are excluded from coverage and the windows-done stat (interior=TRUE,
+// fetched left NULL to signal "not a leaf").
+func (d *DB) MarkInteriorDone(starLo, starHi int, dateLo, dateHi time.Time, totalCount int) error {
+	_, err := d.Exec(`INSERT INTO crawl_windows
+		(star_min, star_max, date_min, date_max, total_count, fetched, done_at, interior)
+		VALUES (?,?,?,?,?,NULL,?,TRUE)
+		ON CONFLICT (star_min, star_max, date_min, date_max) DO UPDATE SET
+			total_count=excluded.total_count, done_at=excluded.done_at, interior=TRUE`,
+		starLo, starHi, dateLo.Format("2006-01-02"), dateHi.Format("2006-01-02"),
+		totalCount, time.Now().UTC())
 	return err
 }
 
