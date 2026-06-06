@@ -27,10 +27,49 @@ type EnumerateOptions struct {
 	To       time.Time // latest created date to consider (inclusive)
 }
 
+// starBandBounds are the lower edges of the coverage star bands (they mirror the
+// heatmap rows: 10-19, 20-49, ... 5000+). Enumerate crawls one band at a time so
+// progress spreads across every row of the coverage map instead of piling into
+// the single largest band.
+var starBandBounds = []int{10, 20, 50, 100, 200, 500, 1000, 5000}
+
+// starBand is one inclusive star range to crawl as a unit.
+type starBand struct{ lo, hi int }
+
+// starBandsFor returns the coverage star bands intersected with [minStars,
+// maxStars], ordered HIGH stars first. High bands hold very few repos so they
+// drain almost instantly and light up their heatmap rows right away; the huge
+// 10-19 band is crawled last. A band that falls entirely outside the requested
+// range is dropped, and a partially-covered band is clipped to the range.
+func starBandsFor(minStars, maxStars int) []starBand {
+	var bands []starBand
+	for i, lo := range starBandBounds {
+		hi := maxStars
+		if i+1 < len(starBandBounds) {
+			hi = starBandBounds[i+1] - 1
+		}
+		if lo < minStars {
+			lo = minStars
+		}
+		if hi > maxStars {
+			hi = maxStars
+		}
+		if lo > hi {
+			continue // band outside [minStars, maxStars]
+		}
+		bands = append(bands, starBand{lo, hi})
+	}
+	for i, j := 0, len(bands)-1; i < j; i, j = i+1, j-1 {
+		bands[i], bands[j] = bands[j], bands[i] // high → low
+	}
+	return bands
+}
+
 // Enumerate walks the (stars x created-date) keyspace, recursively bisecting any
 // window whose total_count exceeds 1000, until every leaf window can be fully
 // paged. Repos are upserted into store; drained leaf windows are recorded for
-// resumability.
+// resumability. Bands are crawled high-star-first so the coverage heatmap fills
+// breadth-first across rows rather than draining one band before the next starts.
 func (c *Client) Enumerate(ctx context.Context, store *db.DB, opts EnumerateOptions) error {
 	if opts.MaxStars == 0 {
 		opts.MaxStars = starCeiling
@@ -42,7 +81,17 @@ func (c *Client) Enumerate(ctx context.Context, store *db.DB, opts EnumerateOpti
 		opts.To = time.Now().UTC()
 	}
 	en := &enumerator{search: c, store: store}
-	return en.crawl(ctx, opts.MinStars, opts.MaxStars, opts.From, opts.To)
+	return en.crawlBands(ctx, opts.MinStars, opts.MaxStars, opts.From, opts.To)
+}
+
+// crawlBands bisects each coverage star band independently, high band first.
+func (en *enumerator) crawlBands(ctx context.Context, minStars, maxStars int, from, to time.Time) error {
+	for _, b := range starBandsFor(minStars, maxStars) {
+		if err := en.crawl(ctx, b.lo, b.hi, from, to); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // searcher is the slice of *Client the enumerator needs, extracted so tests can
