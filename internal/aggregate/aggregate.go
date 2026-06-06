@@ -360,8 +360,11 @@ func bandOf(stars int) int {
 // to the cell and dividing by the cell's total area. Windows tile the crawled
 // keyspace disjointly, so the summed overlap equals the covered fraction.
 func fillCoverageWindows(d *db.DB, months []string, cells [][]CoverageCell) error {
+	// Leaf windows only. Interior checkpoints overlap their children, so summing
+	// their area would double-count and over-report coverage (interior IS NOT
+	// TRUE also matches legacy NULL rows written before the column existed).
 	rows, err := d.Query(`SELECT star_min, star_max, date_min, date_max
-		FROM crawl_windows WHERE done_at IS NOT NULL`)
+		FROM crawl_windows WHERE done_at IS NOT NULL AND interior IS NOT TRUE`)
 	if err != nil {
 		return err
 	}

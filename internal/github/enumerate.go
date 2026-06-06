@@ -45,8 +45,14 @@ func (c *Client) Enumerate(ctx context.Context, store *db.DB, opts EnumerateOpti
 	return en.crawl(ctx, opts.MinStars, opts.MaxStars, opts.From, opts.To)
 }
 
+// searcher is the slice of *Client the enumerator needs, extracted so tests can
+// drive the bisection with a fake that counts calls instead of hitting GitHub.
+type searcher interface {
+	SearchRepositories(ctx context.Context, query string, page int) (*SearchResult, error)
+}
+
 type enumerator struct {
-	search *Client
+	search searcher
 	store  *db.DB
 }
 
@@ -83,7 +89,12 @@ func (en *enumerator) crawl(ctx context.Context, starLo, starHi int, dateLo, dat
 		if err := en.crawl(ctx, starLo, mid, dateLo, dateHi); err != nil {
 			return err
 		}
-		return en.crawl(ctx, mid+1, starHi, dateLo, dateHi)
+		if err := en.crawl(ctx, mid+1, starHi, dateLo, dateHi); err != nil {
+			return err
+		}
+		// Both halves fully drained: checkpoint this interior node so a resume
+		// skips the whole subtree with one lookup instead of re-counting it.
+		return en.store.MarkInteriorDone(starLo, starHi, dateLo, dateHi, n)
 	}
 	if dateHi.After(dateLo) {
 		days := int(dateHi.Sub(dateLo).Hours() / 24)
@@ -94,7 +105,10 @@ func (en *enumerator) crawl(ctx context.Context, starLo, starHi int, dateLo, dat
 		if err := en.crawl(ctx, starLo, starHi, dateLo, midDate); err != nil {
 			return err
 		}
-		return en.crawl(ctx, starLo, starHi, midDate.AddDate(0, 0, 1), dateHi)
+		if err := en.crawl(ctx, starLo, starHi, midDate.AddDate(0, 0, 1), dateHi); err != nil {
+			return err
+		}
+		return en.store.MarkInteriorDone(starLo, starHi, dateLo, dateHi, n)
 	}
 
 	// Single star value AND single day still exceeds 1000: unsplittable. Drain
