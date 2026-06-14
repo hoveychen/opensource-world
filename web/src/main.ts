@@ -1,4 +1,5 @@
 import "./style.css";
+import { search as dbSearch, warmUp as dbWarmUp } from "./db";
 
 type Meta = {
   generated_at: string;
@@ -34,6 +35,18 @@ type Health = {
 
 const BASE = import.meta.env.BASE_URL;
 const dataURL = (name: string) => `${BASE}data/${name}`;
+// Absolute URL so the DuckDB-WASM worker (a separate context) can fetch it.
+const PARQUET_URL = new URL(dataURL("repos.parquet"), location.href).href;
+
+// debounce delays calling fn until `ms` after the last invocation — used so each
+// keystroke doesn't fire its own full-database query.
+function debounce<A extends unknown[]>(fn: (...a: A) => void, ms: number) {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  return (...a: A) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...a), ms);
+  };
+}
 
 async function getJSON<T>(name: string): Promise<T> {
   const res = await fetch(dataURL(name));
@@ -212,6 +225,10 @@ const SHOW = 40;
 const LANG_SHOWN = 12;
 const TOPIC_SHOWN = 16;
 let ALL_REPOS: TopRepo[] = [];
+// Total repos in the full dataset (from meta.json) — shown as the unfiltered
+// count and used in the ranking blurb. Search runs against the full Parquet, so
+// this is the real population, not ALL_REPOS.length (which is just the top 1000).
+let DB_TOTAL = 0;
 // Active filter state, shared between the chip facets, the search box and the
 // Topics-section pills (which feed topics in via filterByTopic).
 const FILTER = { q: "", lang: "", topics: new Set<string>() };
@@ -326,12 +343,10 @@ function rankings(repos: TopRepo[]): string {
     </div>
     <div class="active-filters" id="rank-active" hidden></div>
     <div class="rank" id="rank-list">${rankRowsHTML(repos)}</div>`;
-  return box(
-    "Ranking",
-    "Most-starred repositories",
-    `Click a language or topic to filter — combine several to narrow down — or search by name. Top ${SHOW} matches shown.`,
-    body
-  );
+  const blurb = DB_TOTAL
+    ? `Search across all ${grouped(DB_TOTAL)} repositories — or click a language or topic to filter. Top ${SHOW} matches shown by stars.`
+    : `Click a language or topic to filter — combine several to narrow down — or search by name. Top ${SHOW} matches shown.`;
+  return box("Ranking", "Most-starred repositories", blurb, body);
 }
 
 function wireRankings() {
@@ -364,12 +379,48 @@ function wireRankings() {
     active.innerHTML = tokens.join("") + `<button class="clear-all" type="button" data-clear>Clear all</button>`;
   };
 
+  const filterActive = () =>
+    FILTER.q.trim() !== "" || FILTER.lang !== "" || FILTER.topics.size > 0;
+
+  const showRows = (rows: TopRepo[], total: number) => {
+    list.innerHTML = rankRowsHTML(rows);
+    count.textContent = `${grouped(total)} ${total === 1 ? "repo" : "repos"}`;
+  };
+
+  // Each query gets a sequence number; only the latest may paint, so fast typing
+  // or clicking never lets a slow earlier result overwrite a newer one.
+  let seq = 0;
+
+  const runDBSearch = async () => {
+    const mine = ++seq;
+    try {
+      const { rows, total } = await dbSearch(
+        PARQUET_URL,
+        { q: FILTER.q, lang: FILTER.lang, topics: [...FILTER.topics] },
+        SHOW
+      );
+      if (mine !== seq) return;
+      showRows(rows, total);
+    } catch {
+      // DuckDB-WASM unavailable (or Parquet missing): degrade to filtering the
+      // in-memory top-1000 so search still returns something useful.
+      if (mine !== seq) return;
+      const f = applyFilter();
+      showRows(f, f.length);
+    }
+  };
+  const debouncedDBSearch = debounce(runDBSearch, 200);
+
   const render = () => {
-    const filtered = applyFilter();
-    list.innerHTML = rankRowsHTML(filtered);
-    count.textContent = `${grouped(filtered.length)} ${filtered.length === 1 ? "repo" : "repos"}`;
     syncChips();
     renderActive();
+    if (!filterActive()) {
+      seq++; // cancel any in-flight search so it can't overwrite this view
+      showRows(ALL_REPOS, DB_TOTAL || ALL_REPOS.length);
+      return;
+    }
+    count.textContent = "searching…";
+    debouncedDBSearch();
   };
   rerankList = render;
 
@@ -714,6 +765,7 @@ async function main() {
       getJSON<Coverage>("coverage.json"),
       getJSON<Health>("health.json"),
     ]);
+    DB_TOTAL = meta.total_repos;
     app.insertAdjacentHTML("beforebegin", topbar());
     wireTheme();
     renderStarBadge();
@@ -731,6 +783,10 @@ async function main() {
     wireTopics();
     wireNav();
     reveal();
+    // Boot DuckDB-WASM in the background so the first search doesn't pay the full
+    // init + Parquet-handshake cost. Failure is non-fatal: search falls back to
+    // the in-memory top-1000 filter.
+    dbWarmUp(PARQUET_URL);
   } catch (err) {
     app.innerHTML = `<div class="loading">Could not load the survey data.<br/>${esc(String(err))}</div>`;
   }
