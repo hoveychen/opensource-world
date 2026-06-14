@@ -15,7 +15,7 @@ import (
 	"github.com/hoveychen/opensource-world/internal/db"
 )
 
-// Run writes meta.json, top_repos.json, trends.json, topics.json,
+// Run writes meta.json, top_repos.json, repos.parquet, trends.json, topics.json,
 // languages.json, coverage.json and health.json into outDir.
 func Run(database *db.DB, outDir string) error {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -26,6 +26,9 @@ func Run(database *db.DB, outDir string) error {
 	}
 	if err := writeTopRepos(database, outDir, 1000); err != nil {
 		return fmt.Errorf("top_repos: %w", err)
+	}
+	if err := writeRepoParquet(database, outDir); err != nil {
+		return fmt.Errorf("repos_parquet: %w", err)
 	}
 	if err := writeTrends(database, outDir); err != nil {
 		return fmt.Errorf("trends: %w", err)
@@ -104,6 +107,34 @@ func writeTopRepos(d *db.DB, outDir string, limit int) error {
 		return err
 	}
 	return writeJSON(outDir, "top_repos.json", out)
+}
+
+// writeRepoParquet exports every repo (only the columns the Ranking UI needs)
+// to repos.parquet so the browser can search the full dataset client-side via
+// DuckDB-WASM + HTTP range requests — no backend, no loading the whole ~GB DB.
+//
+// Rows are written stars-DESC and ZSTD-compressed: the ranking always orders by
+// stars, so a sorted file lets range queries with `LIMIT N` read only the first
+// row groups (Parquet stores per-row-group min/max stats DuckDB uses to prune).
+// topics is stored as a native VARCHAR[] list (parsed from the stored JSON
+// string) so the frontend filters with list_contains() instead of string hacks.
+func writeRepoParquet(d *db.DB, outDir string) error {
+	path := filepath.Join(outDir, "repos.parquet")
+	// COPY ... TO overwrites, but remove first so a failed export never leaves a
+	// stale file masquerading as fresh data.
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	// path is a build-time directory we control; no untrusted input to escape.
+	_, err := d.Exec(`COPY (
+		SELECT full_name, stars, forks,
+		       coalesce(language,'')    AS language,
+		       coalesce(description,'') AS description,
+		       coalesce(html_url,'')    AS html_url,
+		       coalesce(topics,'[]')::JSON::VARCHAR[] AS topics
+		FROM repos ORDER BY stars DESC
+	) TO '` + path + `' (FORMAT PARQUET, COMPRESSION zstd)`)
+	return err
 }
 
 // LanguageCount is repos/stars for a programming language.

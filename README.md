@@ -135,15 +135,22 @@ Notes:
 ## Visualization
 
 `web/` is a static visualization site (Vite + TypeScript, hand-built SVG — no chart
-library). It reads small pre-aggregated JSON, so the browser never loads the full
-database. Three views: **star ranking**, **growth over time** (by creation year),
-and a **topic constellation**.
+library). It reads small pre-aggregated JSON for the charts, so the browser never
+loads the full database for those. Three views: **star ranking**, **growth over
+time** (by creation year), and a **topic constellation**.
+
+The ranking **search** covers the *entire* dataset, not just the top repos: the
+aggregate step also exports `repos.parquet` (every repo, columns the ranking needs,
+stars-DESC, ZSTD), and the browser queries it with **DuckDB-WASM** over HTTP range
+requests — only the byte ranges a query touches are fetched, so search spans all
+~millions of repos with no backend. First paint is instant from `top_repos.json`;
+if DuckDB-WASM is unavailable the search degrades to filtering that top-1000 set.
 
 The data pipeline is `crawler aggregate`, which turns the DuckDB into a handful of
-small JSON files:
+small JSON files plus `repos.parquet`:
 
 ```bash
-./bin/crawler aggregate -out web/public/data   # meta/top_repos/trends/topics.json
+./bin/crawler aggregate -out web/public/data   # meta/top_repos/trends/topics.json + repos.parquet
 cd web && pnpm install && pnpm dev             # local dev
 ```
 
