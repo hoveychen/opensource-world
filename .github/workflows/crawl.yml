@@ -70,6 +70,20 @@ jobs:
       - name: Build
         run: CGO_ENABLED=1 go build -o bin/crawler ./cmd/crawler
 
+      # The breakout board's rolling 7-day window, refreshed before the long
+      # crawl so a run that hits its time budget still leaves a current board.
+      #
+      # This lives here rather than in its own daily workflow on purpose: the
+      # DuckDB is single shared state pulled from and pushed to one release
+      # asset, so a second scheduled workflow would race this one and clobber
+      # the upload. Hourly is strictly better than daily anyway, and the sweep
+      # is only a few Search requests against a ~30/min quota, so it costs the
+      # crawl nothing measurable.
+      - name: Breakout sweep
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./bin/crawler breakout
+
       # One process runs enumerate + enrich concurrently. They hit independent,
       # hourly-resetting quotas (GitHub Search ~30/min, ecosyste.ms ~15k/hr), so
       # running them at the same time saturates both budgets instead of leaving

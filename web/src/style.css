@@ -866,3 +866,195 @@ html {
   --cov-3: #30a14e;
   --cov-4: #216e39;
 }
+
+/* ---------- breakout board (zero to a thousand in a week) ---------- */
+/* Reuses the ranking row's rhythm — same 2.3rem text indent, same .meta and
+   .desc treatment — so the board reads as a sibling of the ranking rather than
+   a bolted-on widget. What it adds is the velocity column on the right. */
+.bo-stamp {
+  font-size: 0.76rem;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  padding: 0.8rem 0 0.2rem;
+}
+.bo-list {
+  display: flex;
+  flex-direction: column;
+}
+.bo-row {
+  display: grid;
+  grid-template-columns: 1.8rem 1fr 7.5rem;
+  align-items: start;
+  gap: 0 0.5rem;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--border-muted);
+  color: inherit;
+}
+.bo-row:hover {
+  text-decoration: none;
+}
+.bo-rank {
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  line-height: 1.5rem;
+}
+/* The top three carry the same amber as the star glyph — the only accent the
+   board adds, so the podium reads at a glance without a second palette. */
+.bo-row:nth-child(-n + 3) .bo-rank {
+  color: var(--star);
+  font-weight: 600;
+}
+.bo-name {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+.bo-row:hover .bo-name {
+  text-decoration: underline;
+}
+.bo-main .desc {
+  color: var(--fg-muted);
+  font-size: 0.88rem;
+  margin-top: 0.25rem;
+  max-width: 68ch;
+}
+.bo-main .meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  align-items: center;
+}
+.bo-main .meta .ico {
+  color: var(--star);
+  vertical-align: text-bottom;
+}
+.bo-age {
+  font-variant-numeric: tabular-nums;
+}
+.bo-vel {
+  text-align: right;
+  padding-top: 0.15rem;
+}
+.bo-vel-num {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bo-vel-num span {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--fg-muted);
+  margin-left: 0.15rem;
+}
+.bo-vel-bar {
+  height: 4px;
+  margin-top: 0.4rem;
+  background: var(--border-muted);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.bo-vel-bar i {
+  display: block;
+  height: 100%;
+  width: var(--w, 0%);
+  margin-left: auto;
+  border-radius: 6px;
+  background: var(--star);
+  transform: scaleX(0);
+  transform-origin: right;
+}
+.section.in .bo-vel-bar i {
+  animation: grow 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  animation-delay: calc(var(--i) * 45ms + 120ms);
+}
+
+/* Still-climbing tier: denser, quieter, clearly secondary to the leaderboard. */
+.bo-watch {
+  margin-top: 1.4rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.bo-watch-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+.bo-watch-head b {
+  font-size: 0.85rem;
+}
+.bo-watch-head span {
+  font-size: 0.76rem;
+  color: var(--fg-muted);
+}
+.bo-watch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: 0.1rem 1.5rem;
+}
+.bo-watch-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--border-muted);
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+.bo-watch-row:hover {
+  text-decoration: none;
+}
+.bo-watch-name {
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bo-watch-row:hover .bo-watch-name {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.bo-watch-stars,
+.bo-watch-age {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bo-watch-stars .ico {
+  color: var(--star);
+}
+.bo-watch-age {
+  min-width: 5.2rem;
+  text-align: right;
+}
+
+@media (max-width: 640px) {
+  .bo-row {
+    grid-template-columns: 1.8rem 1fr;
+  }
+  /* Velocity slides under the body text instead of squeezing the name column. */
+  .bo-vel {
+    grid-column: 2;
+    text-align: left;
+    padding-top: 0.5rem;
+  }
+  .bo-vel-bar i {
+    margin-left: 0;
+    transform-origin: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section.in .bo-vel-bar i {
+    animation: none;
+    transform: scaleX(1);
+  }
+}

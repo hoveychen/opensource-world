@@ -8,6 +8,7 @@
 //	enumerate    (P2) enumerate repos via the GitHub Search API
 //	enrich       (P3) enrich stored repos via ecosyste.ms
 //	crawl        run enumerate + enrich concurrently (saturates both quotas)
+//	breakout     refresh the rolling 7-day window of fast-rising new repos
 package main
 
 import (
@@ -47,6 +48,7 @@ Commands:
   enumerate     enumerate repos via GitHub Search (P2)
   enrich        enrich stored repos via ecosyste.ms
   crawl         run enumerate + enrich concurrently (saturates both quotas)
+  breakout      refresh the rolling 7-day window of fast-rising new repos
   aggregate     write JSON summaries for the visualization site
 
 Env:
@@ -80,6 +82,8 @@ func main() {
 		err = cmdEnrich(os.Args[2:])
 	case "crawl":
 		err = cmdCrawl(os.Args[2:])
+	case "breakout":
+		err = cmdBreakout(os.Args[2:])
 	case "aggregate":
 		err = cmdAggregate(os.Args[2:])
 	case "-h", "--help", "help":
@@ -405,5 +409,52 @@ func cmdCrawl(args []string) error {
 	rs := ecoClient.RetryStats()
 	log.Printf("[enrich] ecosyste.ms retries: server5xx=%d ratelimited=%d retrySleeps=%d totalRetryWait=%s",
 		rs.ServerErrors, rs.RateLimitHits, rs.Retries, rs.RetryWait.Round(time.Second))
+	return nil
+}
+
+// cmdBreakout refreshes the rolling window of freshly created, fast-rising
+// repos that feeds the "breakout" board.
+//
+// This is deliberately NOT part of enumerate. Enumerate walks the whole
+// keyspace once and checkpoints each drained window, so a repo created today
+// is not guaranteed to appear until the window covering today is revisited —
+// fine for a census, useless for a daily board. The sweep here is a handful of
+// requests over a 7-day window, cheap enough to re-run on every crawl, and it
+// re-upserts each repo so star counts on the board stay current.
+func cmdBreakout(args []string) error {
+	fs := flag.NewFlagSet("breakout", flag.ExitOnError)
+	minStars := fs.Int("min-stars", github.BreakoutFloor, "watchlist floor: only fetch new repos at or above this star count")
+	window := fs.Duration("window", github.BreakoutWindow, "how far back a repo counts as new; e.g. 168h")
+	fs.Parse(args)
+
+	tok, err := ghtoken.Resolve()
+	if err != nil {
+		return err
+	}
+	if err := ensureDataDir(dbPath()); err != nil {
+		return err
+	}
+	database, err := db.Open(dbPath())
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	log.Printf("[breakout] sweeping repos created in the last %s with stars>=%d", *window, *minStars)
+	n, err := github.NewClient(tok).FetchBreakouts(ctx, database, github.BreakoutOptions{
+		MinStars: *minStars,
+		Window:   *window,
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			log.Printf("[breakout] interrupted after %d repos; progress saved", n)
+			return nil
+		}
+		return err
+	}
+	log.Printf("[breakout] refreshed %d repos", n)
 	return nil
 }

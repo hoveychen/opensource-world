@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hoveychen/opensource-world/internal/db"
+	"github.com/hoveychen/opensource-world/internal/github"
 )
 
 // Run writes meta.json, top_repos.json, repos.parquet, trends.json, topics.json,
@@ -45,7 +46,118 @@ func Run(database *db.DB, outDir string) error {
 	if err := writeHealth(database, outDir); err != nil {
 		return fmt.Errorf("health: %w", err)
 	}
+	if err := writeBreakouts(database, outDir, time.Now()); err != nil {
+		return fmt.Errorf("breakout: %w", err)
+	}
 	return nil
+}
+
+// LeaderStars is the bar for the breakout leaderboard: from nothing to this
+// many stars inside the rolling window. Purely presentational — the sweep
+// fetches down to github.BreakoutFloor so the watchlist below it is populated
+// from the same query.
+const LeaderStars = 1000
+
+// Breakout is one freshly created, fast-rising repository.
+type Breakout struct {
+	FullName    string   `json:"full_name"`
+	Stars       int      `json:"stars"`
+	Forks       int      `json:"forks"`
+	Language    string   `json:"language"`
+	Description string   `json:"description"`
+	HTMLURL     string   `json:"html_url"`
+	Topics      []string `json:"topics"`
+	CreatedAt   string   `json:"created_at"`
+	// AgeDays is how long the repo has existed, so the board can say "1020
+	// stars in 2 days" rather than just showing a star count.
+	AgeDays float64 `json:"age_days"`
+	// StarsPerDay is the velocity that makes the board interesting; age is
+	// floored at one day so a repo hours old doesn't report an absurd rate.
+	StarsPerDay float64 `json:"stars_per_day"`
+	// SyncedAt is when this star count was captured. Surfaced because the board
+	// is only as fresh as the last sweep.
+	SyncedAt string `json:"synced_at,omitempty"`
+}
+
+// BreakoutData is the payload behind the breakout board.
+type BreakoutData struct {
+	GeneratedAt string `json:"generated_at"`
+	WindowDays  int    `json:"window_days"`
+	WindowStart string `json:"window_start"`
+	// LeaderStars / WatchStars are exported so the frontend labels the two
+	// tiers from the data instead of hardcoding thresholds that could drift.
+	LeaderStars int `json:"leader_stars"`
+	WatchStars  int `json:"watch_stars"`
+	// Leaders cleared LeaderStars from zero inside the window; Watchlist is the
+	// tier below still climbing. Both are stars-DESC.
+	Leaders   []Breakout `json:"leaders"`
+	Watchlist []Breakout `json:"watchlist"`
+}
+
+// writeBreakouts exports the rolling window of repos that went from zero to a
+// large star count fast.
+//
+// The window rolls: a repo drops off the board once it is older than
+// github.BreakoutWindow, so the file is recomputed from scratch every run and
+// no "first charted" bookkeeping is kept. That is what makes the board need no
+// star history — a repo created inside the window provably started at zero, so
+// its current star count IS its growth.
+func writeBreakouts(d *db.DB, outDir string, now time.Time) error {
+	now = now.UTC()
+	windowStart := now.Add(-github.BreakoutWindow)
+
+	rows, err := d.Query(`SELECT full_name, stars, forks,
+		coalesce(language,''), coalesce(description,''), coalesce(html_url,''),
+		coalesce(topics,'[]'), created_at, source_synced_at
+		FROM repos
+		WHERE created_at >= ? AND stars >= ? AND is_fork IS NOT TRUE
+		ORDER BY stars DESC`, windowStart, github.BreakoutFloor)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	data := BreakoutData{
+		GeneratedAt: now.Format(time.RFC3339),
+		WindowDays:  int(github.BreakoutWindow / (24 * time.Hour)),
+		WindowStart: windowStart.Format(time.RFC3339),
+		LeaderStars: LeaderStars,
+		WatchStars:  github.BreakoutFloor,
+		Leaders:     []Breakout{},
+		Watchlist:   []Breakout{},
+	}
+	for rows.Next() {
+		var b Breakout
+		var rawTopics string
+		var created time.Time
+		var synced sql.NullTime
+		if err := rows.Scan(&b.FullName, &b.Stars, &b.Forks, &b.Language,
+			&b.Description, &b.HTMLURL, &rawTopics, &created, &synced); err != nil {
+			return err
+		}
+		if json.Unmarshal([]byte(rawTopics), &b.Topics) != nil || b.Topics == nil {
+			b.Topics = []string{}
+		}
+		b.CreatedAt = created.UTC().Format(time.RFC3339)
+		age := now.Sub(created.UTC()).Hours() / 24
+		if age < 0 {
+			age = 0 // clock skew between GitHub and us
+		}
+		b.AgeDays = math.Round(age*10) / 10
+		b.StarsPerDay = math.Round(float64(b.Stars) / math.Max(age, 1))
+		if synced.Valid {
+			b.SyncedAt = synced.Time.UTC().Format(time.RFC3339)
+		}
+		if b.Stars >= LeaderStars {
+			data.Leaders = append(data.Leaders, b)
+		} else {
+			data.Watchlist = append(data.Watchlist, b)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	return writeJSON(outDir, "breakout.json", data)
 }
 
 func writeJSON(outDir, name string, v any) error {

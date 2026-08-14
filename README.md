@@ -68,6 +68,10 @@ CGO_ENABLED=1 go build -o bin/crawler ./cmd/crawler
 ./bin/crawler enrich            # all pending
 ./bin/crawler enrich -limit 500 # just the first 500 pending (highest-star first)
 
+# 3) Refresh the breakout board's rolling 7-day window (seconds, a few requests).
+./bin/crawler breakout                  # new repos with >= 300 stars, last 7 days
+./bin/crawler breakout -window 336h     # a wider window
+
 # Inspect progress at any time
 ./bin/crawler stats
 ```
@@ -81,6 +85,28 @@ CGO_ENABLED=1 go build -o bin/crawler ./cmd/crawler
   deterministic (fixed star ceiling), so a re-run is an exact no-op once complete.
 - **enrich**: repos are processed in `eco_synced_at IS NULL` order; each processed
   repo (including 404s) is stamped, so a re-run only picks up the remainder.
+- **breakout** keeps no checkpoints at all — it is a rolling snapshot, so every
+  run re-fetches the whole window and refreshes the star counts in place.
+
+## The breakout board
+
+A repository created *N* days ago necessarily started at zero stars. So "went
+from nothing to 1000+ stars in a week" needs **no star history**: `created_at`
+plus the current star count fully define the set, and one Search query
+(`stars:>=300 fork:false created:<7d ago>..<today>`) returns all of it.
+
+Measured June–August 2026, a week holds **20–35** repos past 1000 stars and
+~90–115 past 300 — scarce, but never empty.
+
+This deliberately does *not* ride on `enumerate`. Enumerate walks the whole
+keyspace once and checkpoints each drained window, so a repo created today is
+not guaranteed to surface until that window is walked again — fine for a
+census, useless for a board that must be current. `breakout` is a handful of
+requests over a fixed 7-day window instead, cheap enough to re-run hourly.
+
+Repos below 1000 stars but above the 300 fetch floor become the "still
+climbing" tier on the site. The window rolls: once a repo is older than seven
+days it leaves the board, which is why nothing needs to be archived.
 
 ## Schema
 
@@ -101,8 +127,13 @@ a local machine online. Each run:
 
 1. restores the DuckDB from the `db` GitHub Release (asset `repos.duckdb.gz`),
 2. builds the crawler,
-3. runs `enumerate` then `enrich`, each bounded by `-max-runtime`,
+3. runs `breakout` (seconds), then `enumerate` + `enrich` bounded by `-max-runtime`,
 4. gzips and re-uploads the DB to the release (`gh release upload --clobber`).
+
+`breakout` runs *before* the long crawl so a run that exhausts its time budget
+still leaves a current board. It is not a separate daily workflow on purpose:
+the DuckDB is single shared state behind one release asset, so a second
+scheduled workflow would race this one and clobber the upload.
 
 An hourly `cron` chains runs; resumability means each picks up where the last
 stopped. Rate-limit quotas reset hourly, so we trigger hourly — but the
@@ -136,8 +167,10 @@ Notes:
 
 `web/` is a static visualization site (Vite + TypeScript, hand-built SVG — no chart
 library). It reads small pre-aggregated JSON for the charts, so the browser never
-loads the full database for those. Three views: **star ranking**, **growth over
-time** (by creation year), and a **topic constellation**.
+loads the full database for those. The landing section is the **breakout board**
+(repos that went 0 → 1000+ stars this week, plus a still-climbing tier); below it
+sit **star ranking**, **language distribution**, **growth over time** (by creation
+year), a **crawl coverage map**, **project health**, and a **topic constellation**.
 
 The ranking **search** covers the *entire* dataset, not just the top repos: the
 aggregate step also exports `repos.parquet` (every repo, columns the ranking needs,
@@ -150,7 +183,7 @@ The data pipeline is `crawler aggregate`, which turns the DuckDB into a handful 
 small JSON files plus `repos.parquet`:
 
 ```bash
-./bin/crawler aggregate -out web/public/data   # meta/top_repos/trends/topics.json + repos.parquet
+./bin/crawler aggregate -out web/public/data   # meta/top_repos/trends/topics/breakout.json + repos.parquet
 cd web && pnpm install && pnpm dev             # local dev
 ```
 
