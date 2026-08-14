@@ -17,6 +17,31 @@ type TopRepo = {
   html_url: string;
   topics: string[];
 };
+// One freshly created repo on the breakout board. Because it was created inside
+// the rolling window it provably started at zero stars, so `stars` IS its growth
+// — no star history is involved anywhere in this feature.
+type Breakout = {
+  full_name: string;
+  stars: number;
+  forks: number;
+  language: string;
+  description: string;
+  html_url: string;
+  topics: string[];
+  created_at: string;
+  age_days: number;
+  stars_per_day: number;
+  synced_at?: string;
+};
+type BreakoutData = {
+  generated_at: string;
+  window_days: number;
+  window_start: string;
+  leader_stars: number;
+  watch_stars: number;
+  leaders: Breakout[];
+  watchlist: Breakout[];
+};
 type YearBucket = { year: number; repos: number; stars: number };
 type TopicCount = { topic: string; repos: number; stars: number };
 type LanguageCount = { language: string; repos: number; stars: number };
@@ -189,7 +214,7 @@ function box(num: string, title: string, blurb: string, body: string): string {
 
 // Sticky anchor nav across the six sections. The labels match each box()'s
 // `num` eyebrow, so the hrefs line up with the section ids slug() produces.
-const NAV_SECTIONS = ["Ranking", "Languages", "Trends", "Coverage", "Health", "Topics"];
+const NAV_SECTIONS = ["Breakout", "Ranking", "Languages", "Trends", "Coverage", "Health", "Topics"];
 
 function sectionNav(): string {
   const links = NAV_SECTIONS.map(
@@ -477,6 +502,108 @@ function wireTopics() {
   });
 }
 
+// ---------- breakout board (zero to a thousand in a week) ----------
+
+// "1.3 days" / "1 day" / "under a day" — the age is the whole point of the
+// board, so it is spelled out rather than shown as a bare number.
+function ageLabel(days: number): string {
+  if (days < 1) return "under a day";
+  const s = days.toFixed(1).replace(/\.0$/, "");
+  return s === "1" ? "1 day" : `${s} days`;
+}
+
+// Velocity bars use a LOG scale normalised across the board's own range, not a
+// linear share of the fastest. A breakout week is routinely won by two orders
+// of magnitude — 71.7k ★/day against a 255 ★/day tail — and a linear bar
+// collapses everything below first place into an identical stub, so the bar
+// carries no information for the other eleven rows. Log keeps the ordering
+// honest and the whole board legible; the exact rate sits next to the bar, so
+// the bar is a shape cue rather than the measurement itself.
+function velocityWidth(v: number, slowest: number, fastest: number): number {
+  if (!(fastest > 0) || v <= 0) return 0;
+  const span = Math.log(fastest) - Math.log(Math.max(slowest, 1));
+  if (span <= 0) return 100; // single row, or every row at the same pace
+  const t = (Math.log(v) - Math.log(Math.max(slowest, 1))) / span;
+  return Math.min(100, Math.max(6, t * 100)); // 6% floor keeps the last bar visible
+}
+
+function breakoutRowHTML(r: Breakout, i: number, slowest: number, fastest: number): string {
+  const lang = r.language
+    ? `<span class="lang">${langDot(r.language)}${esc(r.language)}</span>`
+    : "";
+  const desc = r.description ? `<div class="desc">${esc(r.description)}</div>` : "";
+  const w = velocityWidth(r.stars_per_day, slowest, fastest);
+  return `
+  <a class="bo-row" href="${esc(r.html_url)}" target="_blank" rel="noopener" style="--w:${w.toFixed(1)}%; --i:${i}">
+    <span class="bo-rank">${i + 1}</span>
+    <div class="bo-main">
+      <div class="bo-name">${esc(r.full_name)}</div>
+      ${desc}
+      <div class="meta">
+        ${lang}
+        <span class="stars">${STAR} ${grouped(r.stars)}</span>
+        <span class="forks">${FORK} ${grouped(r.forks)}</span>
+        <span class="bo-age">in ${ageLabel(r.age_days)}</span>
+      </div>
+    </div>
+    <div class="bo-vel">
+      <div class="bo-vel-num">${compact(r.stars_per_day)}<span>★/day</span></div>
+      <div class="bo-vel-bar"><i></i></div>
+    </div>
+  </a>`;
+}
+
+function watchRowHTML(r: Breakout): string {
+  return `
+  <a class="bo-watch-row" href="${esc(r.html_url)}" target="_blank" rel="noopener"
+     title="${esc(r.description)}">
+    <span class="bo-watch-name">${langDot(r.language)}${esc(r.full_name)}</span>
+    <span class="bo-watch-stars">${STAR} ${grouped(r.stars)}</span>
+    <span class="bo-watch-age">${ageLabel(r.age_days)}</span>
+  </a>`;
+}
+
+function breakoutView(b: BreakoutData | null): string {
+  const title = "Zero to a thousand in a week";
+  if (!b) {
+    return box("Breakout", title, "Breakout data is not available in this build.", "");
+  }
+
+  const blurb =
+    `Repositories born in the last ${b.window_days} days that already cleared ` +
+    `${grouped(b.leader_stars)} stars. Nothing here existed a week ago, so the star ` +
+    `count is the growth — whatever these projects did, it worked.`;
+
+  if (!b.leaders.length && !b.watchlist.length) {
+    return box("Breakout", title, blurb,
+      `<div class="empty">Nothing broke out this week.</div>`);
+  }
+
+  const rates = b.leaders.map((r) => r.stars_per_day);
+  const fastest = Math.max(...rates, 1);
+  const slowest = Math.min(...rates, fastest);
+  const leaders = b.leaders.length
+    ? `<div class="bo-list">${b.leaders.map((r, i) => breakoutRowHTML(r, i, slowest, fastest)).join("")}</div>`
+    : `<div class="empty">No repository cleared ${grouped(b.leader_stars)} stars this week — the watchlist below is still climbing.</div>`;
+
+  const watch = b.watchlist.length
+    ? `<div class="bo-watch">
+         <div class="bo-watch-head">
+           <b>Still climbing</b>
+           <span>${grouped(b.watch_stars)}–${grouped(b.leader_stars - 1)} stars, same window — next week's leaderboard</span>
+         </div>
+         <div class="bo-watch-grid">${b.watchlist.map(watchRowHTML).join("")}</div>
+       </div>`
+    : "";
+
+  const since = new Date(b.window_start).toLocaleDateString("en-US", {
+    month: "short", day: "numeric",
+  });
+  const stamp = `<div class="bo-stamp">Window opens ${since} · ${grouped(b.leaders.length)} on the board, ${grouped(b.watchlist.length)} climbing</div>`;
+
+  return box("Breakout", title, blurb, stamp + leaders + watch);
+}
+
 // ---------- language distribution ----------
 function languages(langs: LanguageCount[]): string {
   const top = langs.slice(0, 18);
@@ -756,7 +883,7 @@ async function main() {
   const app = document.getElementById("app")!;
   app.innerHTML = `<div class="loading">Loading survey…</div>`;
   try {
-    const [meta, repos, yr, topics, langs, cov, health] = await Promise.all([
+    const [meta, repos, yr, topics, langs, cov, health, breakout] = await Promise.all([
       getJSON<Meta>("meta.json"),
       getJSON<TopRepo[]>("top_repos.json"),
       getJSON<YearBucket[]>("trends.json"),
@@ -764,6 +891,9 @@ async function main() {
       getJSON<LanguageCount[]>("languages.json"),
       getJSON<Coverage>("coverage.json"),
       getJSON<Health>("health.json"),
+      // Tolerated as missing: a deploy built from an aggregate that predates the
+      // breakout board still renders every other section instead of failing.
+      getJSON<BreakoutData>("breakout.json").catch(() => null),
     ]);
     DB_TOTAL = meta.total_repos;
     app.insertAdjacentHTML("beforebegin", topbar());
@@ -772,6 +902,7 @@ async function main() {
     app.innerHTML =
       hero(meta) +
       sectionNav() +
+      breakoutView(breakout) +
       rankings(repos) +
       languages(langs) +
       trends(yr) +
