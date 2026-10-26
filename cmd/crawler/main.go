@@ -9,6 +9,8 @@
 //	enrich       (P3) enrich stored repos via ecosyste.ms
 //	crawl        run enumerate + enrich concurrently (saturates both quotas)
 //	breakout     refresh the rolling 7-day window of fast-rising new repos
+//	verify       check the DuckDB is fully readable and writable
+//	rebuild      salvage every table into a fresh DuckDB file
 package main
 
 import (
@@ -50,6 +52,8 @@ Commands:
   crawl         run enumerate + enrich concurrently (saturates both quotas)
   breakout      refresh the rolling 7-day window of fast-rising new repos
   aggregate     write JSON summaries for the visualization site
+  verify        check the DuckDB is fully readable and writable (exit 1 if not)
+  rebuild       salvage every table into a fresh DuckDB file (-out PATH)
 
 Env:
   DB_PATH       override the DuckDB file path
@@ -86,6 +90,10 @@ func main() {
 		err = cmdBreakout(os.Args[2:])
 	case "aggregate":
 		err = cmdAggregate(os.Args[2:])
+	case "verify":
+		err = cmdVerify()
+	case "rebuild":
+		err = cmdRebuild(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -157,6 +165,28 @@ func cmdAggregate(args []string) error {
 		return err
 	}
 	log.Printf("aggregated JSON written to %s", *out)
+	return nil
+}
+
+func cmdVerify() error {
+	if err := db.Verify(dbPath()); err != nil {
+		return err
+	}
+	fmt.Printf("%s verified\n", dbPath())
+	return nil
+}
+
+func cmdRebuild(args []string) error {
+	fs := flag.NewFlagSet("rebuild", flag.ExitOnError)
+	out := fs.String("out", "", "path of the fresh DuckDB to write (must not exist)")
+	fs.Parse(args)
+	if *out == "" {
+		return fmt.Errorf("rebuild: -out is required")
+	}
+	if err := db.Rebuild(dbPath(), *out); err != nil {
+		return err
+	}
+	fmt.Printf("rebuilt %s into %s\n", dbPath(), *out)
 	return nil
 }
 

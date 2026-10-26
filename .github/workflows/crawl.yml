@@ -39,7 +39,10 @@ concurrency:
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 60 # one quota window per run; crawl_minutes leaves overhead
+    # One quota window per run; crawl_minutes leaves overhead. Headroom beyond 60
+    # because setup-go has stalled for 10 min, which pushed the crawl into the
+    # job timeout.
+    timeout-minutes: 75
     env:
       RELEASE_TAG: db
       ASSET: repos.duckdb.gz
@@ -69,6 +72,21 @@ jobs:
 
       - name: Build
         run: CGO_ENABLED=1 go build -o bin/crawler ./cmd/crawler
+
+      # Self-heal a damaged snapshot. A DB uploaded mid-write opens and counts
+      # fine but fails its first commit, so every later run would restore it,
+      # fail, and upload it again. Verify catches that; rebuild salvages every
+      # table into a fresh file (indexes recreated from the data).
+      - name: Verify restored DB
+        run: |
+          if [ ! -f "$DB_PATH" ] || ./bin/crawler verify; then
+            exit 0
+          fi
+          echo "::warning::restored DB failed verification; rebuilding"
+          rm -f data/rebuilt.duckdb
+          ./bin/crawler rebuild -out data/rebuilt.duckdb
+          mv data/rebuilt.duckdb "$DB_PATH"
+          ./bin/crawler verify
 
       # The breakout board's rolling 7-day window, refreshed before the long
       # crawl so a run that hits its time budget still leaves a current board.
@@ -100,8 +118,14 @@ jobs:
         if: always()
         run: ./bin/crawler stats || true
 
+      # Not on cancel/timeout: the runner starts this step while a killed crawler
+      # may still be flushing the file, and a snapshot taken then is torn (that
+      # is how the DB got corrupted on 2026-10-23). Losing one run's progress is
+      # cheap; uploading a broken DB poisons every run after it. Verify also
+      # gates the upload, so a DB that is broken for any other reason is never
+      # written over the last good one.
       - name: Save DB to release
-        if: always()
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -109,6 +133,7 @@ jobs:
             echo "no DB file to save; skipping"
             exit 0
           fi
+          ./bin/crawler verify
           gzip -f "$DB_PATH"
           gh release view "$RELEASE_TAG" >/dev/null 2>&1 || \
             gh release create "$RELEASE_TAG" --title "crawler database" \
