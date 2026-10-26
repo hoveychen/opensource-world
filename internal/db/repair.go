@@ -15,8 +15,10 @@ var tables = []string{"repos", "crawl_windows"}
 // job once gzipped the DB while a timed-out crawler was mid-shutdown) opens and
 // answers simple counts fine, yet points at blocks past the end of the file, so
 // the first commit that touches them fails. Verify therefore reads every column
-// of every row and then commits a write and forces a checkpoint, which together
-// touch all live data and the metadata/free-list blocks a later commit needs.
+// of every row, then rewrites every row in place and forces a checkpoint. A
+// plain scan never reads index blocks, and the torn 2026-10-23 snapshot scanned
+// clean yet failed the first upsert, so the rewrite is what exercises the
+// indexes, row groups and metadata a real write needs.
 func Verify(path string) error {
 	d, err := Open(path)
 	if err != nil {
@@ -32,8 +34,10 @@ func Verify(path string) error {
 		}
 	}
 	for _, stmt := range []string{
-		`CREATE OR REPLACE TABLE _verify_probe AS SELECT 1 AS x`,
-		`DROP TABLE _verify_probe`,
+		// Same-value updates of indexed columns: DuckDB applies them as delete +
+		// insert, so every index entry is rewritten just as an upsert would.
+		`UPDATE repos SET stars = stars, eco_synced_at = eco_synced_at`,
+		`UPDATE crawl_windows SET done_at = done_at`,
 		`FORCE CHECKPOINT`,
 	} {
 		if _, err := d.Exec(stmt); err != nil {
